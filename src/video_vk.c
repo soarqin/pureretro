@@ -429,6 +429,66 @@ static bool vk_swapchain_create(struct video_vk_context *ctx, SDL_Window *window
     return true;
 }
 
+static void vk_set_image(void *handle, const struct retro_vulkan_image *image,
+                         uint32_t num_semaphores, const VkSemaphore *semaphores,
+                         uint32_t src_queue_family)
+{
+    struct video_vk_context *ctx = (struct video_vk_context *)handle;
+    (void)num_semaphores;
+    (void)semaphores;
+    (void)src_queue_family;
+    if (image) {
+        ctx->pending_image = *image;
+        ctx->has_pending_image = true;
+    }
+}
+
+static uint32_t vk_get_sync_index(void *handle)
+{
+    struct video_vk_context *ctx = (struct video_vk_context *)handle;
+    return ctx->frame_index % ctx->image_count;
+}
+
+static uint32_t vk_get_sync_index_mask(void *handle)
+{
+    struct video_vk_context *ctx = (struct video_vk_context *)handle;
+    return (1u << ctx->image_count) - 1u;
+}
+
+static void vk_lock_queue(void *handle)
+{
+    (void)handle;
+    /* No-op: single-threaded queue submission for minimal frontend */
+}
+
+static void vk_unlock_queue(void *handle)
+{
+    (void)handle;
+    /* No-op */
+}
+
+static void vk_set_command_buffers(void *handle, uint32_t num_cmd,
+                                   const VkCommandBuffer *cmd)
+{
+    (void)handle;
+    (void)num_cmd;
+    (void)cmd;
+    /* Stub: not supported in minimal implementation */
+}
+
+static void vk_wait_sync_index(void *handle)
+{
+    (void)handle;
+    /* Stub */
+}
+
+static void vk_set_signal_semaphore(void *handle, VkSemaphore semaphore)
+{
+    (void)handle;
+    (void)semaphore;
+    /* Stub */
+}
+
 /* --- Stubs for functions implemented in later tasks --- */
 
 bool video_vk_init(SDL_Window *window, struct retro_hw_render_callback *hw,
@@ -469,6 +529,14 @@ bool video_vk_init(SDL_Window *window, struct retro_hw_render_callback *hw,
     ctx->hw_if.get_instance_proc_addr = ctx->get_instance_proc_addr;
 
     /* Function pointers will be set in Task 6 */
+    ctx->hw_if.set_image = vk_set_image;
+    ctx->hw_if.get_sync_index = vk_get_sync_index;
+    ctx->hw_if.get_sync_index_mask = vk_get_sync_index_mask;
+    ctx->hw_if.lock_queue = vk_lock_queue;
+    ctx->hw_if.unlock_queue = vk_unlock_queue;
+    ctx->hw_if.set_command_buffers = vk_set_command_buffers;
+    ctx->hw_if.wait_sync_index = vk_wait_sync_index;
+    ctx->hw_if.set_signal_semaphore = vk_set_signal_semaphore;
 
     *out_ctx = ctx;
 
