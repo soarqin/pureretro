@@ -223,6 +223,11 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
 {
     (void)data;
 
+    /* Some cores (e.g. Beetle PSX HW) call callbacks with the experimental
+     * flag OR'd in. Since we support all the experimental features the
+     * project targets, strip the flag and process the base callback. */
+    cmd &= ~RETRO_ENVIRONMENT_EXPERIMENTAL;
+
     switch (cmd) {
     case RETRO_ENVIRONMENT_SET_ROTATION:
         /* TODO: Support screen rotation */
@@ -277,9 +282,6 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         return false;
 
     case RETRO_ENVIRONMENT_SET_HW_RENDER:
-    case RETRO_ENVIRONMENT_SET_HW_RENDER | RETRO_ENVIRONMENT_EXPERIMENTAL:
-        /* Some cores (e.g. Beetle PSX HW) call SET_HW_RENDER with the
-         * experimental flag OR'd in. Treat both the same. */
         return video_set_hw_render((struct retro_hw_render_callback *)data);
 
     case RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER: {
