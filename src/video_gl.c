@@ -25,6 +25,9 @@ typedef void (APIENTRY *PFNGLTEXIMAGE2DPROC)(GLenum target, GLint level, GLint i
                                                GLenum format, GLenum type, const void *pixels);
 typedef void (APIENTRY *PFNGLTEXPARAMETERIPROC)(GLenum target, GLenum pname, GLint param);
 typedef void (APIENTRY *PFNGLDELETETEXTURESPROC)(GLsizei n, const GLuint *textures);
+typedef void (APIENTRY *PFNGLCLEARCOLORPROC)(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha);
+typedef void (APIENTRY *PFNGLCLEARPROC)(GLbitfield mask);
+typedef void (APIENTRY *PFNGLVIEWPORTPROC)(GLint x, GLint y, GLsizei width, GLsizei height);
 
 /* Aliases so the GLPROC macro can use mixed-case token pasting. */
 typedef PFNGLGENTEXTURESPROC PFNGLGenTexturesPROC;
@@ -42,6 +45,10 @@ typedef PFNGLRENDERBUFFERSTORAGEPROC PFNGLRenderbufferStoragePROC;
 typedef PFNGLFRAMEBUFFERRENDERBUFFERPROC PFNGLFramebufferRenderbufferPROC;
 typedef PFNGLCHECKFRAMEBUFFERSTATUSPROC PFNGLCheckFramebufferStatusPROC;
 typedef PFNGLDELETERENDERBUFFERSPROC PFNGLDeleteRenderbuffersPROC;
+typedef PFNGLCLEARCOLORPROC PFNGLClearColorPROC;
+typedef PFNGLCLEARPROC PFNGLClearPROC;
+typedef PFNGLVIEWPORTPROC PFNGLViewportPROC;
+typedef PFNGLBLITFRAMEBUFFERPROC PFNGLBlitFramebufferPROC;
 
 #define GLPROC(name) ((PFNGL##name##PROC)ctx->get_proc_address("gl" #name))
 
@@ -306,8 +313,28 @@ void video_gl_context_destroy(struct video_gl_context *ctx)
 
 void video_gl_present(struct video_gl_context *ctx)
 {
-    (void)ctx;
-    /* The core has rendered into our FBO; just swap the window. */
+    PFNGLBINDFRAMEBUFFERPROC glBindFramebuffer = GLPROC(BindFramebuffer);
+    PFNGLBLITFRAMEBUFFERPROC glBlitFramebuffer = GLPROC(BlitFramebuffer);
+    PFNGLCLEARCOLORPROC glClearColor = GLPROC(ClearColor);
+    PFNGLCLEARPROC glClear = GLPROC(Clear);
+    PFNGLVIEWPORTPROC glViewport = GLPROC(Viewport);
+
+    if (!glBindFramebuffer || !glBlitFramebuffer)
+        return;
+
+    int w, h;
+    SDL_GetWindowSizeInPixels(g_frontend.video.window, &w, &h);
+
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    glViewport(0, 0, w, h);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, ctx->fbo);
+    glBlitFramebuffer(0, 0, (GLint)ctx->fbo_width, (GLint)ctx->fbo_height,
+                      0, 0, w, h,
+                      GL_COLOR_BUFFER_BIT, GL_LINEAR);
+
     SDL_GL_SwapWindow(g_frontend.video.window);
 }
 
