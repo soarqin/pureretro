@@ -108,7 +108,6 @@ void video_process_event(const SDL_Event *event)
 
         if (v->hw_render_enabled && v->renderer == VIDEO_RENDERER_OPENGL &&
             v->gl && !v->gl->cache_context) {
-            video_gl_context_destroy(v->gl);
             video_gl_destroy(v->gl);
             v->gl = NULL;
             if (!video_gl_init(v->window, &v->hw, &v->gl)) {
@@ -140,15 +139,18 @@ bool video_set_hw_render(struct retro_hw_render_callback *hw)
     case RETRO_HW_CONTEXT_OPENGLES2:
     case RETRO_HW_CONTEXT_OPENGL_CORE:
     case RETRO_HW_CONTEXT_OPENGLES3:
-    case RETRO_HW_CONTEXT_OPENGLES_VERSION:
+    case RETRO_HW_CONTEXT_OPENGLES_VERSION: {
+        if (!video_gl_init(v->window, hw, &v->gl)) {
+            video_sw_init(v->window, &v->sw);
+            return false;
+        }
         v->renderer = VIDEO_RENDERER_OPENGL;
         v->hw_render_enabled = true;
         memcpy(&v->hw, hw, sizeof(v->hw));
-        if (!video_gl_init(v->window, hw, &v->gl))
-            return false;
         hw->get_current_framebuffer = video_get_current_framebuffer;
         hw->get_proc_address = video_get_proc_address;
         return true;
+    }
 
 #ifdef PURERETRO_VULKAN_ENABLED
     case RETRO_HW_CONTEXT_VULKAN:

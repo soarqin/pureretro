@@ -251,7 +251,9 @@ bool video_gl_init(SDL_Window *window, struct retro_hw_render_callback *hw,
     ctx->bottom_left_origin = hw->bottom_left_origin;
 
     /* Create an FBO for the core to render into. */
-    if (!gl_fbo_create(ctx, g_av_info.geometry.max_width, g_av_info.geometry.max_height)) {
+    int w, h;
+    SDL_GetWindowSizeInPixels(window, &w, &h);
+    if (!gl_fbo_create(ctx, (unsigned)w, (unsigned)h)) {
         SDL_GL_DestroyContext(ctx->gl_context);
         free(ctx);
         return false;
@@ -331,7 +333,9 @@ void video_gl_present(struct video_gl_context *ctx)
     glClear(GL_COLOR_BUFFER_BIT);
 
     glBindFramebuffer(GL_READ_FRAMEBUFFER, ctx->fbo);
-    glBlitFramebuffer(0, 0, (GLint)ctx->fbo_width, (GLint)ctx->fbo_height,
+    GLint src_y0 = ctx->bottom_left_origin ? 0 : (GLint)ctx->fbo_height;
+    GLint src_y1 = ctx->bottom_left_origin ? (GLint)ctx->fbo_height : 0;
+    glBlitFramebuffer(0, src_y0, (GLint)ctx->fbo_width, src_y1,
                       0, 0, w, h,
                       GL_COLOR_BUFFER_BIT, GL_LINEAR);
 
