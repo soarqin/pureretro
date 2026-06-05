@@ -40,32 +40,32 @@ Enable cores that request `RETRO_HW_CONTEXT_OPENGL*` to render via an OpenGL con
 
 ---
 
-## Phase 4 — Vulkan Hardware Rendering
+## Phase 4 — Vulkan Hardware Rendering ✅
 
 ### Goal
 Enable cores that request `RETRO_HW_CONTEXT_VULKAN` to render via a Vulkan context.
 
 ### Tasks
 
-1. **Vulkan initialization**
+1. ✅ **Vulkan initialization**
    - Create `VkInstance` with required extensions (including `VK_KHR_surface` and platform-specific surface extension).
    - Create `VkSurfaceKHR` via `SDL_Vulkan_CreateSurface`.
    - Select a suitable `VkPhysicalDevice` and queue family.
    - Create `VkDevice` and retrieve graphics queue.
 
-2. **Swapchain management**
+2. ✅ **Swapchain management**
    - Create a `VkSwapchainKHR` with double or triple buffering.
    - Retrieve swapchain images and create `VkImageView`s.
    - Implement `video_vk_present()` to acquire next image and present.
 
-3. **libretro Vulkan interface**
+3. ✅ **libretro Vulkan interface**
    - Respond to `RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE` with a populated `retro_hw_render_interface` struct.
    - Provide `get_proc_address` via `vkGetInstanceProcAddr` / `vkGetDeviceProcAddr`.
 
-4. **Risk mitigation**
+4. ✅ **Risk mitigation**
    - Vulkan swapchain code is significantly more complex than OpenGL. If the minimal implementation proves too large, provide the API-level handles and document presentation limitations.
 
-5. **Testing**
+5. ✅ **Testing**
    - Test with a Vulkan-capable core (e.g., beetle-psx-hw with Vulkan renderer).
 
 ---
