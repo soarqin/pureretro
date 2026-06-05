@@ -112,14 +112,20 @@ static bool create_surface(struct video_vk_context *ctx, SDL_Window *window)
 static bool select_physical_device(struct video_vk_context *ctx)
 {
     uint32_t count = 0;
-    vkEnumeratePhysicalDevices(ctx->instance, &count, NULL);
-    if (count == 0) {
+    VkResult r = vkEnumeratePhysicalDevices(ctx->instance, &count, NULL);
+    if (!vk_check(r, "vkEnumeratePhysicalDevices") || count == 0) {
         fprintf(stderr, "No Vulkan physical devices found\n");
         return false;
     }
 
     VkPhysicalDevice *devices = malloc(sizeof(VkPhysicalDevice) * count);
-    vkEnumeratePhysicalDevices(ctx->instance, &count, devices);
+    if (!devices)
+        return false;
+    r = vkEnumeratePhysicalDevices(ctx->instance, &count, devices);
+    if (!vk_check(r, "vkEnumeratePhysicalDevices")) {
+        free(devices);
+        return false;
+    }
 
     for (uint32_t i = 0; i < count; ++i) {
         VkPhysicalDeviceProperties props;
@@ -128,17 +134,29 @@ static bool select_physical_device(struct video_vk_context *ctx)
         uint32_t qf_count = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(devices[i], &qf_count, NULL);
         VkQueueFamilyProperties *qf_props = malloc(sizeof(VkQueueFamilyProperties) * qf_count);
+        if (!qf_props)
+            continue;
         vkGetPhysicalDeviceQueueFamilyProperties(devices[i], &qf_count, qf_props);
 
         for (uint32_t q = 0; q < qf_count; ++q) {
             VkBool32 present_support = VK_FALSE;
-            vkGetPhysicalDeviceSurfaceSupportKHR(devices[i], q, ctx->surface, &present_support);
+            r = vkGetPhysicalDeviceSurfaceSupportKHR(devices[i], q, ctx->surface, &present_support);
+            if (r != VK_SUCCESS)
+                continue;
 
             if ((qf_props[q].queueFlags & VK_QUEUE_GRAPHICS_BIT) && present_support) {
                 uint32_t ext_count = 0;
-                vkEnumerateDeviceExtensionProperties(devices[i], NULL, &ext_count, NULL);
+                r = vkEnumerateDeviceExtensionProperties(devices[i], NULL, &ext_count, NULL);
+                if (!vk_check(r, "vkEnumerateDeviceExtensionProperties") || ext_count == 0)
+                    continue;
                 VkExtensionProperties *exts = malloc(sizeof(VkExtensionProperties) * ext_count);
-                vkEnumerateDeviceExtensionProperties(devices[i], NULL, &ext_count, exts);
+                if (!exts)
+                    continue;
+                r = vkEnumerateDeviceExtensionProperties(devices[i], NULL, &ext_count, exts);
+                if (!vk_check(r, "vkEnumerateDeviceExtensionProperties")) {
+                    free(exts);
+                    continue;
+                }
 
                 bool has_swapchain = false;
                 for (uint32_t e = 0; e < ext_count; ++e) {
