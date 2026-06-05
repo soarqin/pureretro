@@ -161,16 +161,15 @@ bool core_init(const char *content_path)
     }
 
     g_core.retro_set_environment(core_environment);
-    g_core.retro_init();
-
-    g_core.retro_get_system_info(&info);
-    fprintf(stderr, "Core: %s (v%s)\n", info.library_name, info.library_version);
-
     g_core.retro_set_video_refresh(core_video_refresh);
     g_core.retro_set_audio_sample(core_audio_sample);
     g_core.retro_set_audio_sample_batch(core_audio_sample_batch);
     g_core.retro_set_input_poll(core_input_poll);
     g_core.retro_set_input_state(core_input_state);
+    g_core.retro_init();
+
+    g_core.retro_get_system_info(&info);
+    fprintf(stderr, "Core: %s (v%s)\n", info.library_name, info.library_version);
 
     if (content_path) {
         struct retro_game_info game;

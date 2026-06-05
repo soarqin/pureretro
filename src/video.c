@@ -266,7 +266,6 @@ uintptr_t video_get_current_framebuffer(void)
         break;
     }
 
-    fprintf(stderr, "get_current_framebuffer -> %llu\n", (unsigned long long)fb);
     return fb;
 }
 
