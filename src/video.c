@@ -122,20 +122,15 @@ void video_process_event(const SDL_Event *event)
         event->type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) {
         v->frame_width  = (unsigned)event->window.data1;
         v->frame_height = (unsigned)event->window.data2;
-        fprintf(stderr, "Window resized to %ux%u\n", v->frame_width, v->frame_height);
-
         if (v->hw_render_enabled && v->renderer == VIDEO_RENDERER_OPENGL &&
             v->gl && !v->gl->cache_context) {
-            fprintf(stderr, "Recreating GL context after resize...\n");
             video_gl_destroy(v->gl);
             v->gl = NULL;
             if (!video_gl_init(v->window, &v->hw, &v->gl)) {
                 fprintf(stderr, "Failed to recreate GL context after resize\n");
                 g_frontend.running = false;
             } else if (v->hw.context_reset) {
-                fprintf(stderr, "Calling context_reset after resize...\n");
                 v->hw.context_reset();
-                fprintf(stderr, "context_reset after resize returned.\n");
             }
         }
 
@@ -212,11 +207,8 @@ bool video_set_hw_render(struct retro_hw_render_callback *hw)
             fprintf(stderr, "  warning: user preferred '%s' but core chose 'gl'\n",
                     renderer_name(g_frontend.preferred_renderer));
         }
-        if (hw->context_reset) {
-            fprintf(stderr, "Calling context_reset...\n");
+        if (hw->context_reset)
             hw->context_reset();
-            fprintf(stderr, "context_reset returned.\n");
-        }
         return true;
     }
 
@@ -235,11 +227,8 @@ bool video_set_hw_render(struct retro_hw_render_callback *hw)
             fprintf(stderr, "  warning: user preferred '%s' but core chose 'vk'\n",
                     renderer_name(g_frontend.preferred_renderer));
         }
-        if (hw->context_reset) {
-            fprintf(stderr, "Calling context_reset...\n");
+        if (hw->context_reset)
             hw->context_reset();
-            fprintf(stderr, "context_reset returned.\n");
-        }
         return true;
 #endif
 

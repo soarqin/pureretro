@@ -403,8 +403,6 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
 void RETRO_CALLCONV core_video_refresh(const void *data, unsigned width,
                                        unsigned height, size_t pitch)
 {
-    fprintf(stderr, "core_video_refresh: data=%p width=%u height=%u pitch=%zu\n",
-            data, width, height, pitch);
     video_present(data, width, height, pitch);
 }
 
