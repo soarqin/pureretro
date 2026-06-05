@@ -154,6 +154,7 @@ bool video_set_hw_render(struct retro_hw_render_callback *hw)
     struct video_state *v = &g_frontend.video;
 
     fprintf(stderr, "Core requested HW context: %s\n", hw_context_name(hw->context_type));
+    g_frontend.hw_render_requested = true;
 
     /* Destroy the software renderer before switching to HW. */
     if (v->sw) {

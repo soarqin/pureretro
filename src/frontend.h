@@ -78,6 +78,11 @@ struct frontend_state
      * renderer; this is a hint, not a hard requirement. */
     enum video_renderer preferred_renderer;
 
+    /* Set true once the core has called SET_HW_RENDER at least once.
+     * Used for diagnostics: if the user requested HW but this is false,
+     * the core never tried to initialize HW rendering. */
+    bool hw_render_requested;
+
     struct video_state video;
 
     /* Audio stream handle */
@@ -89,6 +94,10 @@ struct frontend_state
     /* Core paths */
     const char *core_path;
     const char *content_path;
+
+    /* System directory (for firmware/BIOS files). Owned by the frontend,
+     * freed on shutdown. NULL if not configured. */
+    char *system_directory;
 
     /* Loaded ROM data (owned by frontend, freed on shutdown) */
     void *rom_data;

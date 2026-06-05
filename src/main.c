@@ -102,8 +102,31 @@ static bool frontend_init(void)
 
     g_frontend.running = true;
 
+    /* Set up the system directory for firmware/BIOS files.
+     * SDL_GetPrefPath returns a platform-appropriate user data directory.
+     * Cores like Beetle PSX HW look here for scph5500.bin etc. */
+    const char *pref = SDL_GetPrefPath("pureretro", "system");
+    if (pref) {
+        /* SDL_GetPrefPath returns a path ending with a separator; strip it
+         * so we can append "system" consistently across platforms. */
+        size_t len = strlen(pref);
+        if (len > 0 && (pref[len-1] == '/' || pref[len-1] == '\\'))
+            len--;
+        char *path = malloc(len + 7); /* "system" + NUL */
+        if (path) {
+            snprintf(path, len + 7, "%.*ssystem", (int)len, pref);
+            g_frontend.system_directory = path;
+            fprintf(stderr, "System directory: %s\n", g_frontend.system_directory);
+            /* Create the directory if it doesn't exist (best-effort) */
+            SDL_CreateDirectory(g_frontend.system_directory);
+        }
+        SDL_free((void *)pref);
+    }
+
     if (!video_init("PureRetro", 640, 480)) {
         fprintf(stderr, "Failed to initialize video\n");
+        free(g_frontend.system_directory);
+        g_frontend.system_directory = NULL;
         return false;
     }
 
@@ -120,6 +143,8 @@ static void frontend_shutdown(void)
 {
     audio_shutdown();
     video_shutdown();
+    free(g_frontend.system_directory);
+    g_frontend.system_directory = NULL;
     SDL_Quit();
 }
 
@@ -196,8 +221,13 @@ int main(int argc, char *argv[])
         g_frontend.video.renderer == VIDEO_RENDERER_SW) {
         fprintf(stderr, "  WARNING: user requested '%s' but renderer is 'sw'.\n",
                 renderer_name(g_frontend.preferred_renderer));
-        fprintf(stderr, "  This usually means the core failed to load. Check\n");
-        fprintf(stderr, "  for 'retro_load_game failed' or other errors above.\n");
+        if (!g_frontend.hw_render_requested) {
+            fprintf(stderr, "  The core never called SET_HW_RENDER. Common causes:\n");
+            fprintf(stderr, "  - Missing firmware/BIOS (cores like Beetle PSX HW\n");
+            fprintf(stderr, "    silently fall back to software without a valid BIOS)\n");
+            fprintf(stderr, "  - Core does not support the requested renderer\n");
+            fprintf(stderr, "  - Core failed to load content (check earlier errors)\n");
+        }
     }
 
     /* Initialize audio now that we know the core's sample rate */

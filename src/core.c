@@ -251,7 +251,7 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         return false;
 
     case RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY:
-        *(const char **)data = NULL;
+        *(const char **)data = g_frontend.system_directory;
         return true;
 
     case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT: {
@@ -279,13 +279,17 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
 
     case RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER: {
         int *preferred = (int *)data;
+        bool result;
         switch (g_frontend.preferred_renderer) {
-        case VIDEO_RENDERER_VULKAN: *preferred = RETRO_HW_CONTEXT_VULKAN;    return true;
-        case VIDEO_RENDERER_OPENGL: *preferred = RETRO_HW_CONTEXT_OPENGL_CORE; return true;
-        case VIDEO_RENDERER_SW:     *preferred = RETRO_HW_CONTEXT_NONE;      return true;
+        case VIDEO_RENDERER_VULKAN: *preferred = RETRO_HW_CONTEXT_VULKAN;     result = true; break;
+        case VIDEO_RENDERER_OPENGL: *preferred = RETRO_HW_CONTEXT_OPENGL_CORE; result = true; break;
+        case VIDEO_RENDERER_SW:     *preferred = RETRO_HW_CONTEXT_NONE;       result = true; break;
         case VIDEO_RENDERER_NONE:
-        default:                    return false;
+        default:                    result = false; break;
         }
+        fprintf(stderr, "Core queried preferred HW render: %s (context=%d)\n",
+                result ? "yes" : "no (no preference)", *preferred);
+        return result;
     }
 
     case RETRO_ENVIRONMENT_GET_VARIABLE:
