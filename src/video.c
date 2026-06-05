@@ -117,7 +117,10 @@ void video_process_event(const SDL_Event *event)
         }
 
         if (v->hw_render_enabled && v->renderer == VIDEO_RENDERER_VULKAN && v->vk) {
-            video_vk_resize(v->vk, v->window);
+            if (!video_vk_resize(v->vk, v->window)) {
+                fprintf(stderr, "Failed to recreate Vulkan swapchain after resize\n");
+                g_frontend.running = false;
+            }
         }
     }
 }
