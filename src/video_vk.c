@@ -500,11 +500,8 @@ void video_vk_destroy(struct video_vk_context *ctx)
             vkDestroyFence(ctx->device, ctx->frame_fence[i], NULL);
     }
 
-    if (ctx->cmd_pool != VK_NULL_HANDLE) {
-        if (ctx->cmd_buffers)
-            vkFreeCommandBuffers(ctx->device, ctx->cmd_pool, ctx->image_count, ctx->cmd_buffers);
+    if (ctx->cmd_pool != VK_NULL_HANDLE)
         vkDestroyCommandPool(ctx->device, ctx->cmd_pool, NULL);
-    }
 
     if (ctx->swapchain_views) {
         for (uint32_t i = 0; i < ctx->image_count; ++i) {
