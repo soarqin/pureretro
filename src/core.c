@@ -272,11 +272,17 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
 
     case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT: {
         enum retro_pixel_format fmt = *(const enum retro_pixel_format *)data;
-        if (fmt != RETRO_PIXEL_FORMAT_0RGB1555 &&
-            fmt != RETRO_PIXEL_FORMAT_XRGB8888 &&
-            fmt != RETRO_PIXEL_FORMAT_RGB565) {
-            return false;
+        const char *fmt_name = "unknown";
+        switch (fmt) {
+        case RETRO_PIXEL_FORMAT_0RGB1555: fmt_name = "0RGB1555"; break;
+        case RETRO_PIXEL_FORMAT_XRGB8888: fmt_name = "XRGB8888"; break;
+        case RETRO_PIXEL_FORMAT_RGB565:   fmt_name = "RGB565";   break;
+        case RETRO_PIXEL_FORMAT_UNKNOWN:  fmt_name = "UNKNOWN";  break;
         }
+        fprintf(stderr, "Core requested pixel format: %s (%d)\n", fmt_name, (int)fmt);
+        /* Accept all formats. The software renderer will handle whatever the
+         * core sends. Returning false here causes cores like Beetle PSX HW
+         * to skip SET_HW_RENDER entirely and fall back to software. */
         g_frontend.video.pixel_format = fmt;
         return true;
     }
