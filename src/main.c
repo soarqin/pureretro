@@ -188,6 +188,18 @@ int main(int argc, char *argv[])
     fprintf(stderr, "Final active renderer: %s\n",
             renderer_name(g_frontend.video.renderer));
 
+    /* Warn if the user requested HW but ended up in software. This usually
+     * means the core failed to load (retro_load_game returned false) or the
+     * core never called SET_HW_RENDER despite being a HW core. */
+    if (g_frontend.preferred_renderer != VIDEO_RENDERER_NONE &&
+        g_frontend.preferred_renderer != VIDEO_RENDERER_SW &&
+        g_frontend.video.renderer == VIDEO_RENDERER_SW) {
+        fprintf(stderr, "  WARNING: user requested '%s' but renderer is 'sw'.\n",
+                renderer_name(g_frontend.preferred_renderer));
+        fprintf(stderr, "  This usually means the core failed to load. Check\n");
+        fprintf(stderr, "  for 'retro_load_game failed' or other errors above.\n");
+    }
+
     /* Initialize audio now that we know the core's sample rate */
     if (!audio_init(g_av_info.timing.sample_rate)) {
         fprintf(stderr, "Warning: failed to initialize audio\n");

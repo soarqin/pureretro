@@ -152,6 +152,9 @@ bool core_init(const char *content_path)
 {
     struct retro_system_info info;
 
+    fprintf(stderr, "Initializing core (content: %s)\n",
+            content_path ? content_path : "<none>");
+
     if (g_core.retro_api_version() != RETRO_API_VERSION) {
         fprintf(stderr, "Core API version mismatch\n");
         return false;
@@ -161,7 +164,7 @@ bool core_init(const char *content_path)
     g_core.retro_init();
 
     g_core.retro_get_system_info(&info);
-    printf("Core: %s (v%s)\n", info.library_name, info.library_version);
+    fprintf(stderr, "Core: %s (v%s)\n", info.library_name, info.library_version);
 
     g_core.retro_set_video_refresh(core_video_refresh);
     g_core.retro_set_audio_sample(core_audio_sample);
@@ -175,30 +178,34 @@ bool core_init(const char *content_path)
         game.path = content_path;
 
         if (!load_file(content_path, &g_frontend.rom_data, &g_frontend.rom_size)) {
-            fprintf(stderr, "Failed to load content: %s\n", content_path);
+            fprintf(stderr, "Failed to load content file: %s\n", content_path);
             return false;
         }
 
         game.data = g_frontend.rom_data;
         game.size = g_frontend.rom_size;
 
+        fprintf(stderr, "Calling retro_load_game...\n");
         if (!g_core.retro_load_game(&game)) {
-            fprintf(stderr, "retro_load_game failed\n");
+            fprintf(stderr, "retro_load_game failed (core rejected the content)\n");
             return false;
         }
+        fprintf(stderr, "retro_load_game succeeded\n");
     } else {
+        fprintf(stderr, "Calling retro_load_game(NULL)...\n");
         if (!g_core.retro_load_game(NULL)) {
             fprintf(stderr, "retro_load_game(NULL) failed\n");
             return false;
         }
+        fprintf(stderr, "retro_load_game(NULL) succeeded\n");
     }
 
     g_core.retro_get_system_av_info(&g_av_info);
-    printf("AV: %ux%u @ %.2f Hz, audio: %.2f Hz\n",
-           g_av_info.geometry.base_width,
-           g_av_info.geometry.base_height,
-           g_av_info.timing.fps,
-           g_av_info.timing.sample_rate);
+    fprintf(stderr, "AV: %ux%u @ %.2f Hz, audio: %.2f Hz\n",
+            g_av_info.geometry.base_width,
+            g_av_info.geometry.base_height,
+            g_av_info.timing.fps,
+            g_av_info.timing.sample_rate);
 
     return true;
 }
