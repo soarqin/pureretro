@@ -362,6 +362,7 @@ static bool vk_swapchain_create(struct video_vk_context *ctx, SDL_Window *window
         return false;
     ctx->swapchain_images = calloc(ctx->image_count, sizeof(VkImage));
     ctx->swapchain_views = calloc(ctx->image_count, sizeof(VkImageView));
+    /* framebuffers is reserved for future graphics pipeline use (see design spec) */
     ctx->framebuffers = calloc(ctx->image_count, sizeof(VkFramebuffer));
     ctx->cmd_buffers = calloc(ctx->image_count, sizeof(VkCommandBuffer));
     if (!ctx->swapchain_images || !ctx->swapchain_views ||
