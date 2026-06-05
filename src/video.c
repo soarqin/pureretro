@@ -26,7 +26,21 @@ bool video_init(const char *title, unsigned width, unsigned height)
     v->renderer = VIDEO_RENDERER_SW;
     v->pixel_format = RETRO_PIXEL_FORMAT_0RGB1555; /* libretro default */
 
-    v->window = SDL_CreateWindow(title, (int)width, (int)height, 0);
+    /* Set window flags based on the user's --render preference. The window
+     * must be created with the right flags for the renderer we'll use:
+     * SDL_WINDOW_OPENGL for OpenGL, SDL_WINDOW_VULKAN for Vulkan. */
+    SDL_WindowFlags window_flags = 0;
+    if (g_frontend.preferred_renderer == VIDEO_RENDERER_OPENGL) {
+        window_flags = SDL_WINDOW_OPENGL;
+        fprintf(stderr, "Creating window with SDL_WINDOW_OPENGL\n");
+    } else if (g_frontend.preferred_renderer == VIDEO_RENDERER_VULKAN) {
+        window_flags = SDL_WINDOW_VULKAN;
+        fprintf(stderr, "Creating window with SDL_WINDOW_VULKAN\n");
+    } else {
+        fprintf(stderr, "Creating window with no HW flags (software or auto-detect)\n");
+    }
+
+    v->window = SDL_CreateWindow(title, (int)width, (int)height, window_flags);
     if (!v->window) {
         fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
         return false;
