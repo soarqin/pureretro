@@ -225,6 +225,31 @@ static bool create_command_pool(struct video_vk_context *ctx)
 
 static bool vk_swapchain_create(struct video_vk_context *ctx, SDL_Window *window)
 {
+    /* Free old GPU resources and arrays from any previous swapchain */
+    if (ctx->swapchain_views) {
+        for (uint32_t i = 0; i < ctx->image_count; ++i) {
+            if (ctx->swapchain_views[i] != VK_NULL_HANDLE)
+                vkDestroyImageView(ctx->device, ctx->swapchain_views[i], NULL);
+        }
+    }
+    for (int i = 0; i < VK_MAX_FRAMES_IN_FLIGHT; ++i) {
+        if (ctx->image_available[i] != VK_NULL_HANDLE)
+            vkDestroySemaphore(ctx->device, ctx->image_available[i], NULL);
+        if (ctx->render_finished[i] != VK_NULL_HANDLE)
+            vkDestroySemaphore(ctx->device, ctx->render_finished[i], NULL);
+        if (ctx->frame_fence[i] != VK_NULL_HANDLE)
+            vkDestroyFence(ctx->device, ctx->frame_fence[i], NULL);
+    }
+    free(ctx->swapchain_images);
+    free(ctx->swapchain_views);
+    free(ctx->framebuffers);
+    free(ctx->cmd_buffers);
+    ctx->swapchain_images = NULL;
+    ctx->swapchain_views = NULL;
+    ctx->framebuffers = NULL;
+    ctx->cmd_buffers = NULL;
+    ctx->image_count = 0;
+
     VkSurfaceCapabilitiesKHR caps;
     VkResult r = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
         ctx->physical_device, ctx->surface, &caps);
@@ -305,17 +330,6 @@ static bool vk_swapchain_create(struct video_vk_context *ctx, SDL_Window *window
     if (caps.maxImageCount > 0 && image_count > caps.maxImageCount)
         image_count = caps.maxImageCount;
 
-    /* Free old arrays before overwriting (swapchain recreation path) */
-    free(ctx->swapchain_images);
-    free(ctx->swapchain_views);
-    free(ctx->framebuffers);
-    free(ctx->cmd_buffers);
-    ctx->swapchain_images = NULL;
-    ctx->swapchain_views = NULL;
-    ctx->framebuffers = NULL;
-    ctx->cmd_buffers = NULL;
-    ctx->image_count = 0;
-
     VkSwapchainCreateInfoKHR sci = {0};
     sci.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
     sci.surface = ctx->surface;
@@ -326,21 +340,21 @@ static bool vk_swapchain_create(struct video_vk_context *ctx, SDL_Window *window
     sci.imageArrayLayers = 1;
     sci.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     sci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    sci.queueFamilyIndexCount = 1;
-    sci.pQueueFamilyIndices = &ctx->queue_family_index;
     sci.preTransform = caps.currentTransform;
     sci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
     sci.presentMode = present_mode;
     sci.clipped = VK_TRUE;
     sci.oldSwapchain = ctx->swapchain;
 
-    VkSwapchainKHR old_swapchain = ctx->swapchain;
-    r = vkCreateSwapchainKHR(ctx->device, &sci, NULL, &ctx->swapchain);
+    /* Use local handle to avoid losing old swapchain on creation failure */
+    VkSwapchainKHR new_swapchain = VK_NULL_HANDLE;
+    r = vkCreateSwapchainKHR(ctx->device, &sci, NULL, &new_swapchain);
     if (!vk_check(r, "vkCreateSwapchainKHR"))
         return false;
 
-    if (old_swapchain != VK_NULL_HANDLE)
-        vkDestroySwapchainKHR(ctx->device, old_swapchain, NULL);
+    if (ctx->swapchain != VK_NULL_HANDLE)
+        vkDestroySwapchainKHR(ctx->device, ctx->swapchain, NULL);
+    ctx->swapchain = new_swapchain;
 
     /* Retrieve swapchain images */
     r = vkGetSwapchainImagesKHR(ctx->device, ctx->swapchain, &ctx->image_count, NULL);
@@ -350,6 +364,11 @@ static bool vk_swapchain_create(struct video_vk_context *ctx, SDL_Window *window
     ctx->swapchain_views = calloc(ctx->image_count, sizeof(VkImageView));
     ctx->framebuffers = calloc(ctx->image_count, sizeof(VkFramebuffer));
     ctx->cmd_buffers = calloc(ctx->image_count, sizeof(VkCommandBuffer));
+    if (!ctx->swapchain_images || !ctx->swapchain_views ||
+        !ctx->framebuffers || !ctx->cmd_buffers) {
+        fprintf(stderr, "Failed to allocate swapchain arrays\n");
+        return false;
+    }
     r = vkGetSwapchainImagesKHR(ctx->device, ctx->swapchain, &ctx->image_count, ctx->swapchain_images);
     if (!vk_check(r, "vkGetSwapchainImagesKHR"))
         return false;
