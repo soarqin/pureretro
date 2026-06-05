@@ -341,6 +341,7 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         return true;
     }
 
+#ifdef PURERETRO_VULKAN_ENABLED
     case RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE: {
         if (g_frontend.video.renderer != VIDEO_RENDERER_VULKAN || !g_frontend.video.vk)
             return false;
@@ -349,6 +350,10 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         *iface = (const struct retro_hw_render_interface *)&g_frontend.video.vk->hw_if;
         return true;
     }
+#else
+    case RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE:
+        return false;
+#endif
 
     default:
         return false;
