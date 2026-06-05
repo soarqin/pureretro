@@ -277,6 +277,9 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         return false;
 
     case RETRO_ENVIRONMENT_SET_HW_RENDER:
+    case RETRO_ENVIRONMENT_SET_HW_RENDER | RETRO_ENVIRONMENT_EXPERIMENTAL:
+        /* Some cores (e.g. Beetle PSX HW) call SET_HW_RENDER with the
+         * experimental flag OR'd in. Treat both the same. */
         return video_set_hw_render((struct retro_hw_render_callback *)data);
 
     case RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER: {
