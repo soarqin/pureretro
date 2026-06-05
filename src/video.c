@@ -95,7 +95,7 @@ void video_present(const void *data, unsigned width, unsigned height, size_t pit
         switch (v->renderer) {
         case VIDEO_RENDERER_OPENGL:
             if (v->gl)
-                video_gl_present(v->gl);
+                video_gl_present(v->gl, width, height);
             break;
 #ifdef PURERETRO_VULKAN_ENABLED
         case VIDEO_RENDERER_VULKAN:

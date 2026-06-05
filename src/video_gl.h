@@ -54,8 +54,9 @@ void video_gl_context_reset(struct video_gl_context *ctx);
 /* Called before the GL context is destroyed. */
 void video_gl_context_destroy(struct video_gl_context *ctx);
 
-/* Present a hardware-rendered frame by swapping the window. */
-void video_gl_present(struct video_gl_context *ctx);
+/* Present a hardware-rendered frame by blitting the rendered region
+ * to the window and swapping. */
+void video_gl_present(struct video_gl_context *ctx, unsigned width, unsigned height);
 
 /* Return the current framebuffer (FBO name). */
 uintptr_t video_gl_get_current_framebuffer(struct video_gl_context *ctx);

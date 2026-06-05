@@ -315,7 +315,7 @@ void video_gl_context_destroy(struct video_gl_context *ctx)
         g_frontend.video.hw.context_destroy();
 }
 
-void video_gl_present(struct video_gl_context *ctx)
+void video_gl_present(struct video_gl_context *ctx, unsigned width, unsigned height)
 {
     PFNGLBINDFRAMEBUFFERPROC glBindFramebuffer = GLPROC(BindFramebuffer);
     PFNGLBLITFRAMEBUFFERPROC glBlitFramebuffer = GLPROC(BlitFramebuffer);
@@ -344,10 +344,29 @@ void video_gl_present(struct video_gl_context *ctx)
     glClear(GL_COLOR_BUFFER_BIT);
 
     glBindFramebuffer(GL_READ_FRAMEBUFFER, ctx->fbo);
-    GLint src_y0 = ctx->bottom_left_origin ? 0 : (GLint)ctx->fbo_height;
-    GLint src_y1 = ctx->bottom_left_origin ? (GLint)ctx->fbo_height : 0;
-    glBlitFramebuffer(0, src_y0, (GLint)ctx->fbo_width, src_y1,
-                      0, 0, w, h,
+
+    /* Blit the rendered region (width x height) to a centered rectangle
+     * that preserves aspect ratio. */
+    float src_aspect = (float)width / (float)height;
+    float dst_aspect = (float)w / (float)h;
+    GLint dst_w, dst_h, dst_x, dst_y;
+
+    if (src_aspect > dst_aspect) {
+        dst_w = w;
+        dst_h = (GLint)((float)w / src_aspect);
+        dst_x = 0;
+        dst_y = (h - dst_h) / 2;
+    } else {
+        dst_h = h;
+        dst_w = (GLint)((float)h * src_aspect);
+        dst_x = (w - dst_w) / 2;
+        dst_y = 0;
+    }
+
+    GLint src_y0 = ctx->bottom_left_origin ? 0 : (GLint)height;
+    GLint src_y1 = ctx->bottom_left_origin ? (GLint)height : 0;
+    glBlitFramebuffer(0, src_y0, (GLint)width, src_y1,
+                      dst_x, dst_y, dst_x + dst_w, dst_y + dst_h,
                       GL_COLOR_BUFFER_BIT, GL_LINEAR);
 
     SDL_GL_SwapWindow(g_frontend.video.window);
