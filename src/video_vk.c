@@ -85,3 +85,11 @@ retro_proc_address_t video_vk_get_proc_address(struct video_vk_context *ctx,
     return NULL;
 #endif
 }
+
+bool video_vk_resize(struct video_vk_context *ctx, SDL_Window *window)
+{
+    (void)ctx;
+    (void)window;
+    /* TODO: Full implementation in Task 5 */
+    return true;
+}
