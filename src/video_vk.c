@@ -500,7 +500,8 @@ void video_vk_destroy(struct video_vk_context *ctx)
     }
 
     if (ctx->cmd_pool != VK_NULL_HANDLE) {
-        vkFreeCommandBuffers(ctx->device, ctx->cmd_pool, ctx->image_count, ctx->cmd_buffers);
+        if (ctx->cmd_buffers)
+            vkFreeCommandBuffers(ctx->device, ctx->cmd_pool, ctx->image_count, ctx->cmd_buffers);
         vkDestroyCommandPool(ctx->device, ctx->cmd_pool, NULL);
     }
 
