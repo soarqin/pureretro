@@ -26,7 +26,8 @@ struct video_gl_context
     unsigned fbo_width;
     unsigned fbo_height;
     unsigned fbo_texture;
-    unsigned fbo_depth;
+    unsigned fbo_depth_rb;     /* depth or combined depth+stencil renderbuffer */
+    unsigned fbo_stencil_rb;   /* separate stencil renderbuffer (if needed) */
 
     /* Cached proc addresses */
     retro_hw_get_proc_address_t get_proc_address;

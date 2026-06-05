@@ -36,21 +36,35 @@ typedef PFNGLGENFRAMEBUFFERSPROC PFNGLGenFramebuffersPROC;
 typedef PFNGLBINDFRAMEBUFFERPROC PFNGLBindFramebufferPROC;
 typedef PFNGLFRAMEBUFFERTEXTURE2DPROC PFNGLFramebufferTexture2DPROC;
 typedef PFNGLDELETEFRAMEBUFFERSPROC PFNGLDeleteFramebuffersPROC;
+typedef PFNGLGENRENDERBUFFERSPROC PFNGLGenRenderbuffersPROC;
+typedef PFNGLBINDRENDERBUFFERPROC PFNGLBindRenderbufferPROC;
+typedef PFNGLRENDERBUFFERSTORAGEPROC PFNGLRenderbufferStoragePROC;
+typedef PFNGLFRAMEBUFFERRENDERBUFFERPROC PFNGLFramebufferRenderbufferPROC;
+typedef PFNGLCHECKFRAMEBUFFERSTATUSPROC PFNGLCheckFramebufferStatusPROC;
+typedef PFNGLDELETERENDERBUFFERSPROC PFNGLDeleteRenderbuffersPROC;
 
 #define GLPROC(name) ((PFNGL##name##PROC)ctx->get_proc_address("gl" #name))
+
+static void gl_fbo_destroy(struct video_gl_context *ctx);
 
 static bool gl_fbo_create(struct video_gl_context *ctx, unsigned width, unsigned height)
 {
     PFNGLGENFRAMEBUFFERSPROC glGenFramebuffers = GLPROC(GenFramebuffers);
     PFNGLGENTEXTURESPROC glGenTextures = GLPROC(GenTextures);
+    PFNGLGENRENDERBUFFERSPROC glGenRenderbuffers = GLPROC(GenRenderbuffers);
     PFNGLBINDFRAMEBUFFERPROC glBindFramebuffer = GLPROC(BindFramebuffer);
     PFNGLBINDTEXTUREPROC glBindTexture = GLPROC(BindTexture);
+    PFNGLBINDRENDERBUFFERPROC glBindRenderbuffer = GLPROC(BindRenderbuffer);
     PFNGLTEXIMAGE2DPROC glTexImage2D = GLPROC(TexImage2D);
     PFNGLTEXPARAMETERIPROC glTexParameteri = GLPROC(TexParameteri);
+    PFNGLRENDERBUFFERSTORAGEPROC glRenderbufferStorage = GLPROC(RenderbufferStorage);
     PFNGLFRAMEBUFFERTEXTURE2DPROC glFramebufferTexture2D = GLPROC(FramebufferTexture2D);
+    PFNGLFRAMEBUFFERRENDERBUFFERPROC glFramebufferRenderbuffer = GLPROC(FramebufferRenderbuffer);
+    PFNGLCHECKFRAMEBUFFERSTATUSPROC glCheckFramebufferStatus = GLPROC(CheckFramebufferStatus);
 
     if (!glGenFramebuffers || !glGenTextures || !glBindFramebuffer ||
-        !glBindTexture || !glTexImage2D || !glTexParameteri || !glFramebufferTexture2D) {
+        !glBindTexture || !glTexImage2D || !glTexParameteri ||
+        !glFramebufferTexture2D || !glCheckFramebufferStatus) {
         fprintf(stderr, "OpenGL: Failed to load required FBO functions\n");
         return false;
     }
@@ -69,7 +83,59 @@ static bool gl_fbo_create(struct video_gl_context *ctx, unsigned width, unsigned
     glBindFramebuffer(GL_FRAMEBUFFER, ctx->fbo);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
                            GL_TEXTURE_2D, ctx->fbo_texture, 0);
+
+    bool need_depth   = g_frontend.video.hw.depth;
+    bool need_stencil = g_frontend.video.hw.stencil;
+
+    if (need_depth || need_stencil) {
+        if (!glGenRenderbuffers || !glBindRenderbuffer ||
+            !glRenderbufferStorage || !glFramebufferRenderbuffer) {
+            fprintf(stderr, "OpenGL: Failed to load renderbuffer functions\n");
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            gl_fbo_destroy(ctx);
+            return false;
+        }
+    }
+
+    if (need_depth && need_stencil) {
+        glGenRenderbuffers(1, &ctx->fbo_depth_rb);
+        glBindRenderbuffer(GL_RENDERBUFFER, ctx->fbo_depth_rb);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8,
+                              (GLsizei)width, (GLsizei)height);
+        glBindRenderbuffer(GL_RENDERBUFFER, 0);
+
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                                  GL_RENDERBUFFER, ctx->fbo_depth_rb);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT,
+                                  GL_RENDERBUFFER, ctx->fbo_depth_rb);
+    } else if (need_depth) {
+        glGenRenderbuffers(1, &ctx->fbo_depth_rb);
+        glBindRenderbuffer(GL_RENDERBUFFER, ctx->fbo_depth_rb);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24,
+                              (GLsizei)width, (GLsizei)height);
+        glBindRenderbuffer(GL_RENDERBUFFER, 0);
+
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                                  GL_RENDERBUFFER, ctx->fbo_depth_rb);
+    } else if (need_stencil) {
+        glGenRenderbuffers(1, &ctx->fbo_stencil_rb);
+        glBindRenderbuffer(GL_RENDERBUFFER, ctx->fbo_stencil_rb);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_STENCIL_INDEX8,
+                              (GLsizei)width, (GLsizei)height);
+        glBindRenderbuffer(GL_RENDERBUFFER, 0);
+
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT,
+                                  GL_RENDERBUFFER, ctx->fbo_stencil_rb);
+    }
+
+    GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    if (status != GL_FRAMEBUFFER_COMPLETE) {
+        fprintf(stderr, "OpenGL: FBO incomplete (status 0x%x)\n", status);
+        gl_fbo_destroy(ctx);
+        return false;
+    }
 
     ctx->fbo_width = width;
     ctx->fbo_height = height;
@@ -81,6 +147,7 @@ static void gl_fbo_destroy(struct video_gl_context *ctx)
 {
     PFNGLDELETEFRAMEBUFFERSPROC glDeleteFramebuffers = GLPROC(DeleteFramebuffers);
     PFNGLDELETETEXTURESPROC glDeleteTextures = GLPROC(DeleteTextures);
+    PFNGLDELETERENDERBUFFERSPROC glDeleteRenderbuffers = GLPROC(DeleteRenderbuffers);
 
     if (glDeleteFramebuffers && ctx->fbo)
         glDeleteFramebuffers(1, &ctx->fbo);
@@ -88,8 +155,16 @@ static void gl_fbo_destroy(struct video_gl_context *ctx)
     if (glDeleteTextures && ctx->fbo_texture)
         glDeleteTextures(1, &ctx->fbo_texture);
 
+    if (glDeleteRenderbuffers && ctx->fbo_depth_rb)
+        glDeleteRenderbuffers(1, &ctx->fbo_depth_rb);
+
+    if (glDeleteRenderbuffers && ctx->fbo_stencil_rb)
+        glDeleteRenderbuffers(1, &ctx->fbo_stencil_rb);
+
     ctx->fbo = 0;
     ctx->fbo_texture = 0;
+    ctx->fbo_depth_rb = 0;
+    ctx->fbo_stencil_rb = 0;
     ctx->fbo_width = 0;
     ctx->fbo_height = 0;
 }
