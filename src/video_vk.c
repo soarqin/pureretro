@@ -433,17 +433,101 @@ static bool vk_swapchain_create(struct video_vk_context *ctx, SDL_Window *window
 bool video_vk_init(SDL_Window *window, struct retro_hw_render_callback *hw,
                    struct video_vk_context **out_ctx)
 {
-    (void)window;
-    (void)hw;
-    (void)out_ctx;
-    /* Implemented in Task 5 */
+    struct video_vk_context *ctx = calloc(1, sizeof(*ctx));
+    if (!ctx)
+        return false;
+
+    if (!create_instance(ctx, hw->debug_context))
+        goto fail;
+
+    if (!create_surface(ctx, window))
+        goto fail;
+
+    if (!select_physical_device(ctx))
+        goto fail;
+
+    if (!create_device(ctx))
+        goto fail;
+
+    if (!create_command_pool(ctx))
+        goto fail;
+
+    if (!vk_swapchain_create(ctx, window))
+        goto fail;
+
+    /* Populate libretro interface */
+    ctx->hw_if.interface_type = RETRO_HW_RENDER_INTERFACE_VULKAN;
+    ctx->hw_if.interface_version = RETRO_HW_RENDER_INTERFACE_VULKAN_VERSION;
+    ctx->hw_if.handle = ctx;
+    ctx->hw_if.instance = ctx->instance;
+    ctx->hw_if.gpu = ctx->physical_device;
+    ctx->hw_if.device = ctx->device;
+    ctx->hw_if.queue = ctx->graphics_queue;
+    ctx->hw_if.queue_index = ctx->queue_family_index;
+    ctx->hw_if.get_device_proc_addr = ctx->get_device_proc_addr;
+    ctx->hw_if.get_instance_proc_addr = ctx->get_instance_proc_addr;
+
+    /* Function pointers will be set in Task 6 */
+
+    *out_ctx = ctx;
+
+    if (hw->context_reset)
+        hw->context_reset();
+
+    return true;
+
+fail:
+    video_vk_destroy(ctx);
+    *out_ctx = NULL;
     return false;
 }
 
 void video_vk_destroy(struct video_vk_context *ctx)
 {
-    (void)ctx;
-    /* Implemented in Task 5 */
+    if (!ctx)
+        return;
+
+    if (ctx->device != VK_NULL_HANDLE)
+        vkDeviceWaitIdle(ctx->device);
+
+    for (int i = 0; i < VK_MAX_FRAMES_IN_FLIGHT; ++i) {
+        if (ctx->image_available[i] != VK_NULL_HANDLE)
+            vkDestroySemaphore(ctx->device, ctx->image_available[i], NULL);
+        if (ctx->render_finished[i] != VK_NULL_HANDLE)
+            vkDestroySemaphore(ctx->device, ctx->render_finished[i], NULL);
+        if (ctx->frame_fence[i] != VK_NULL_HANDLE)
+            vkDestroyFence(ctx->device, ctx->frame_fence[i], NULL);
+    }
+
+    if (ctx->cmd_pool != VK_NULL_HANDLE) {
+        vkFreeCommandBuffers(ctx->device, ctx->cmd_pool, ctx->image_count, ctx->cmd_buffers);
+        vkDestroyCommandPool(ctx->device, ctx->cmd_pool, NULL);
+    }
+
+    if (ctx->swapchain_views) {
+        for (uint32_t i = 0; i < ctx->image_count; ++i) {
+            if (ctx->swapchain_views[i] != VK_NULL_HANDLE)
+                vkDestroyImageView(ctx->device, ctx->swapchain_views[i], NULL);
+        }
+    }
+
+    if (ctx->swapchain != VK_NULL_HANDLE)
+        vkDestroySwapchainKHR(ctx->device, ctx->swapchain, NULL);
+
+    if (ctx->device != VK_NULL_HANDLE)
+        vkDestroyDevice(ctx->device, NULL);
+
+    if (ctx->surface != VK_NULL_HANDLE)
+        vkDestroySurfaceKHR(ctx->instance, ctx->surface, NULL);
+
+    if (ctx->instance != VK_NULL_HANDLE)
+        vkDestroyInstance(ctx->instance, NULL);
+
+    free(ctx->swapchain_images);
+    free(ctx->swapchain_views);
+    free(ctx->framebuffers);
+    free(ctx->cmd_buffers);
+    free(ctx);
 }
 
 void video_vk_present(struct video_vk_context *ctx)
@@ -463,10 +547,30 @@ retro_proc_address_t video_vk_get_proc_address(struct video_vk_context *ctx,
 
 bool video_vk_resize(struct video_vk_context *ctx, SDL_Window *window)
 {
-    (void)ctx;
-    (void)window;
-    /* Implemented in Task 5 */
-    return true;
+    if (!ctx || ctx->device == VK_NULL_HANDLE)
+        return false;
+
+    vkDeviceWaitIdle(ctx->device);
+
+    /* Free old command buffers and image views; vk_swapchain_create handles the rest */
+    if (ctx->cmd_pool != VK_NULL_HANDLE && ctx->cmd_buffers)
+        vkFreeCommandBuffers(ctx->device, ctx->cmd_pool, ctx->image_count, ctx->cmd_buffers);
+
+    for (uint32_t i = 0; i < ctx->image_count; ++i) {
+        if (ctx->swapchain_views && ctx->swapchain_views[i] != VK_NULL_HANDLE)
+            vkDestroyImageView(ctx->device, ctx->swapchain_views[i], NULL);
+    }
+    free(ctx->swapchain_images);
+    free(ctx->swapchain_views);
+    free(ctx->framebuffers);
+    free(ctx->cmd_buffers);
+    ctx->swapchain_images = NULL;
+    ctx->swapchain_views = NULL;
+    ctx->framebuffers = NULL;
+    ctx->cmd_buffers = NULL;
+    ctx->image_count = 0;
+
+    return vk_swapchain_create(ctx, window);
 }
 
 #else /* PURERETRO_VULKAN_ENABLED */
