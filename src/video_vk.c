@@ -599,8 +599,170 @@ void video_vk_destroy(struct video_vk_context *ctx)
 
 void video_vk_present(struct video_vk_context *ctx)
 {
-    (void)ctx;
-    /* Implemented in Task 7 */
+    if (!ctx || !ctx->has_pending_image)
+        return;
+
+    uint32_t frame_idx = ctx->frame_index % VK_MAX_FRAMES_IN_FLIGHT;
+
+    vkWaitForFences(ctx->device, 1, &ctx->frame_fence[frame_idx], VK_TRUE, UINT64_MAX);
+    vkResetFences(ctx->device, 1, &ctx->frame_fence[frame_idx]);
+
+    uint32_t image_index = 0;
+    VkResult r = vkAcquireNextImageKHR(
+        ctx->device, ctx->swapchain, UINT64_MAX,
+        ctx->image_available[frame_idx], VK_NULL_HANDLE, &image_index);
+
+    if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR) {
+        /* Swapchain needs recreation; skip this frame */
+        ctx->has_pending_image = false;
+        return;
+    }
+    if (!vk_check(r, "vkAcquireNextImageKHR"))
+        return;
+
+    VkCommandBuffer cmd = ctx->cmd_buffers[image_index];
+    vkResetCommandBuffer(cmd, 0);
+
+    VkCommandBufferBeginInfo cbbi = {0};
+    cbbi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    cbbi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(cmd, &cbbi);
+
+    /* The core image is available via the VkImageViewCreateInfo stored in retro_vulkan_image */
+    VkImage core_image = ctx->pending_image.create_info.image;
+    VkImageLayout core_layout = ctx->pending_image.image_layout;
+
+    /* Transition swapchain image to TRANSFER_DST_OPTIMAL */
+    VkImageMemoryBarrier barrier = {0};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = ctx->swapchain_images[image_index];
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = 1;
+    barrier.srcAccessMask = 0;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+    vkCmdPipelineBarrier(cmd,
+                         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         0,
+                         0, NULL,
+                         0, NULL,
+                         1, &barrier);
+
+    /* Transition core image to TRANSFER_SRC_OPTIMAL */
+    barrier.oldLayout = core_layout;
+    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    barrier.image = core_image;
+    barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+    vkCmdPipelineBarrier(cmd,
+                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         0,
+                         0, NULL,
+                         0, NULL,
+                         1, &barrier);
+
+    /* Compute blit region (stretch to fill) */
+    int32_t src_width = (int32_t)g_av_info.geometry.max_width;
+    int32_t src_height = (int32_t)g_av_info.geometry.max_height;
+    if (src_width == 0) src_width = (int32_t)ctx->swapchain_extent.width;
+    if (src_height == 0) src_height = (int32_t)ctx->swapchain_extent.height;
+
+    VkImageBlit blit = {0};
+    blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    blit.srcSubresource.mipLevel = 0;
+    blit.srcSubresource.baseArrayLayer = 0;
+    blit.srcSubresource.layerCount = 1;
+    blit.srcOffsets[0].x = 0;
+    blit.srcOffsets[0].y = 0;
+    blit.srcOffsets[0].z = 0;
+    blit.srcOffsets[1].x = src_width;
+    blit.srcOffsets[1].y = src_height;
+    blit.srcOffsets[1].z = 1;
+    blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    blit.dstSubresource.mipLevel = 0;
+    blit.dstSubresource.baseArrayLayer = 0;
+    blit.dstSubresource.layerCount = 1;
+    blit.dstOffsets[0].x = 0;
+    blit.dstOffsets[0].y = 0;
+    blit.dstOffsets[0].z = 0;
+    blit.dstOffsets[1].x = (int32_t)ctx->swapchain_extent.width;
+    blit.dstOffsets[1].y = (int32_t)ctx->swapchain_extent.height;
+    blit.dstOffsets[1].z = 1;
+
+    vkCmdBlitImage(cmd,
+                   core_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                   ctx->swapchain_images[image_index], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                   1, &blit, VK_FILTER_LINEAR);
+
+    /* Transition swapchain image to PRESENT_SRC_KHR */
+    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    barrier.image = ctx->swapchain_images[image_index];
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = 0;
+
+    vkCmdPipelineBarrier(cmd,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                         0,
+                         0, NULL,
+                         0, NULL,
+                         1, &barrier);
+
+    /* Transition core image back to its original layout */
+    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    barrier.newLayout = core_layout;
+    barrier.image = core_image;
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+    vkCmdPipelineBarrier(cmd,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                         0,
+                         0, NULL,
+                         0, NULL,
+                         1, &barrier);
+
+    vkEndCommandBuffer(cmd);
+
+    VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    VkSubmitInfo submit_info = {0};
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit_info.waitSemaphoreCount = 1;
+    submit_info.pWaitSemaphores = &ctx->image_available[frame_idx];
+    submit_info.pWaitDstStageMask = &wait_stage;
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &cmd;
+    submit_info.signalSemaphoreCount = 1;
+    submit_info.pSignalSemaphores = &ctx->render_finished[frame_idx];
+
+    vkQueueSubmit(ctx->graphics_queue, 1, &submit_info, ctx->frame_fence[frame_idx]);
+
+    VkPresentInfoKHR present_info = {0};
+    present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    present_info.waitSemaphoreCount = 1;
+    present_info.pWaitSemaphores = &ctx->render_finished[frame_idx];
+    present_info.swapchainCount = 1;
+    present_info.pSwapchains = &ctx->swapchain;
+    present_info.pImageIndices = &image_index;
+
+    r = vkQueuePresentKHR(ctx->graphics_queue, &present_info);
+    if (r != VK_ERROR_OUT_OF_DATE_KHR && r != VK_SUBOPTIMAL_KHR)
+        vk_check(r, "vkQueuePresentKHR");
+
+    ctx->frame_index++;
+    ctx->has_pending_image = false;
 }
 
 retro_proc_address_t video_vk_get_proc_address(struct video_vk_context *ctx,
