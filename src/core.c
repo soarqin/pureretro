@@ -223,6 +223,15 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
 {
     (void)data;
 
+    /* Log every callback the core makes, before stripping. The raw value
+     * tells us if the core is using the experimental flag (0x10000) or any
+     * other bits we don't recognize. */
+    static unsigned last_cmd = (unsigned)-1;
+    if (cmd != last_cmd) {
+        fprintf(stderr, "  env: raw cmd=%u (0x%x)\n", cmd, cmd);
+        last_cmd = cmd;
+    }
+
     /* Some cores (e.g. Beetle PSX HW) call callbacks with the experimental
      * flag OR'd in. Since we support all the experimental features the
      * project targets, strip the flag and process the base callback. */
@@ -386,9 +395,7 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
 #endif
 
     default:
-        /* Log unhandled callbacks to help diagnose core compatibility issues.
-         * Many cores call callbacks we don't implement; this is normal. */
-        fprintf(stderr, "Unhandled env callback: %d\n", (int)cmd);
+        /* All callbacks are already logged at the top of this function. */
         return false;
     }
 }
