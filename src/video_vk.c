@@ -255,10 +255,8 @@ static bool vk_swapchain_create(struct video_vk_context *ctx, SDL_Window *window
     uint32_t pm_count = 0;
     vkGetPhysicalDeviceSurfacePresentModesKHR(ctx->physical_device, ctx->surface, &pm_count, NULL);
     VkPresentModeKHR *modes = malloc(sizeof(VkPresentModeKHR) * pm_count);
-    if (!modes) {
-        free(formats);
+    if (!modes)
         return false;
-    }
     vkGetPhysicalDeviceSurfacePresentModesKHR(ctx->physical_device, ctx->surface, &pm_count, modes);
 
     VkPresentModeKHR present_mode = VK_PRESENT_MODE_FIFO_KHR;
