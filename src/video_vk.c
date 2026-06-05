@@ -55,7 +55,7 @@ static const char *vk_result_string(VkResult r)
 static bool vk_check(VkResult r, const char *op)
 {
     if (r != VK_SUCCESS) {
-        fprintf(stderr, "Vulkan error in %s: %s (0x%x)\n", op, vk_result_string(r), r);
+        fprintf(stderr, "Vulkan error in %s: %s (%d)\n", op, vk_result_string(r), (int)r);
         return false;
     }
     return true;
@@ -64,7 +64,7 @@ static bool vk_check(VkResult r, const char *op)
 static bool create_instance(struct video_vk_context *ctx, bool debug)
 {
     Uint32 ext_count = 0;
-    char const * const *sdl_exts = SDL_Vulkan_GetInstanceExtensions(&ext_count);
+    const char * const *sdl_exts = SDL_Vulkan_GetInstanceExtensions(&ext_count);
     if (!sdl_exts) {
         fprintf(stderr, "SDL_Vulkan_GetInstanceExtensions failed: %s\n", SDL_GetError());
         return false;
@@ -138,7 +138,8 @@ static bool select_physical_device(struct video_vk_context *ctx)
             continue;
         vkGetPhysicalDeviceQueueFamilyProperties(devices[i], &qf_count, qf_props);
 
-        for (uint32_t q = 0; q < qf_count; ++q) {
+        bool found = false;
+        for (uint32_t q = 0; q < qf_count && !found; ++q) {
             VkBool32 present_support = VK_FALSE;
             r = vkGetPhysicalDeviceSurfaceSupportKHR(devices[i], q, ctx->surface, &present_support);
             if (!vk_check(r, "vkGetPhysicalDeviceSurfaceSupportKHR"))
@@ -170,13 +171,15 @@ static bool select_physical_device(struct video_vk_context *ctx)
                 if (has_swapchain) {
                     ctx->physical_device = devices[i];
                     ctx->queue_family_index = q;
-                    free(qf_props);
-                    free(devices);
-                    return true;
+                    found = true;
                 }
             }
         }
         free(qf_props);
+        if (found) {
+            free(devices);
+            return true;
+        }
     }
 
     fprintf(stderr, "No suitable Vulkan physical device found\n");
