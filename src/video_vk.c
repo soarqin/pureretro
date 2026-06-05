@@ -605,7 +605,6 @@ void video_vk_present(struct video_vk_context *ctx)
     uint32_t frame_idx = ctx->frame_index % VK_MAX_FRAMES_IN_FLIGHT;
 
     vkWaitForFences(ctx->device, 1, &ctx->frame_fence[frame_idx], VK_TRUE, UINT64_MAX);
-    vkResetFences(ctx->device, 1, &ctx->frame_fence[frame_idx]);
 
     uint32_t image_index = 0;
     VkResult r = vkAcquireNextImageKHR(
@@ -620,13 +619,17 @@ void video_vk_present(struct video_vk_context *ctx)
     if (!vk_check(r, "vkAcquireNextImageKHR"))
         return;
 
+    /* Reset fence only after successful acquire to avoid deadlock on failure */
+    vkResetFences(ctx->device, 1, &ctx->frame_fence[frame_idx]);
+
     VkCommandBuffer cmd = ctx->cmd_buffers[image_index];
     vkResetCommandBuffer(cmd, 0);
 
     VkCommandBufferBeginInfo cbbi = {0};
     cbbi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     cbbi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(cmd, &cbbi);
+    if (!vk_check(vkBeginCommandBuffer(cmd, &cbbi), "vkBeginCommandBuffer"))
+        return;
 
     /* The core image is available via the VkImageViewCreateInfo stored in retro_vulkan_image */
     VkImage core_image = ctx->pending_image.create_info.image;
@@ -734,7 +737,8 @@ void video_vk_present(struct video_vk_context *ctx)
                          0, NULL,
                          1, &barrier);
 
-    vkEndCommandBuffer(cmd);
+    if (!vk_check(vkEndCommandBuffer(cmd), "vkEndCommandBuffer"))
+        return;
 
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
     VkSubmitInfo submit_info = {0};
@@ -747,7 +751,9 @@ void video_vk_present(struct video_vk_context *ctx)
     submit_info.signalSemaphoreCount = 1;
     submit_info.pSignalSemaphores = &ctx->render_finished[frame_idx];
 
-    vkQueueSubmit(ctx->graphics_queue, 1, &submit_info, ctx->frame_fence[frame_idx]);
+    if (!vk_check(vkQueueSubmit(ctx->graphics_queue, 1, &submit_info,
+                                ctx->frame_fence[frame_idx]), "vkQueueSubmit"))
+        return;
 
     VkPresentInfoKHR present_info = {0};
     present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
