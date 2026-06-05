@@ -26,17 +26,28 @@ typedef void (APIENTRY *PFNGLTEXIMAGE2DPROC)(GLenum target, GLint level, GLint i
 typedef void (APIENTRY *PFNGLTEXPARAMETERIPROC)(GLenum target, GLenum pname, GLint param);
 typedef void (APIENTRY *PFNGLDELETETEXTURESPROC)(GLsizei n, const GLuint *textures);
 
-#define GLPROC(name) ((name)ctx->get_proc_address(#name))
+/* Aliases so the GLPROC macro can use mixed-case token pasting. */
+typedef PFNGLGENTEXTURESPROC PFNGLGenTexturesPROC;
+typedef PFNGLBINDTEXTUREPROC PFNGLBindTexturePROC;
+typedef PFNGLTEXIMAGE2DPROC PFNGLTexImage2DPROC;
+typedef PFNGLTEXPARAMETERIPROC PFNGLTexParameteriPROC;
+typedef PFNGLDELETETEXTURESPROC PFNGLDeleteTexturesPROC;
+typedef PFNGLGENFRAMEBUFFERSPROC PFNGLGenFramebuffersPROC;
+typedef PFNGLBINDFRAMEBUFFERPROC PFNGLBindFramebufferPROC;
+typedef PFNGLFRAMEBUFFERTEXTURE2DPROC PFNGLFramebufferTexture2DPROC;
+typedef PFNGLDELETEFRAMEBUFFERSPROC PFNGLDeleteFramebuffersPROC;
+
+#define GLPROC(name) ((PFNGL##name##PROC)ctx->get_proc_address("gl" #name))
 
 static bool gl_fbo_create(struct video_gl_context *ctx, unsigned width, unsigned height)
 {
-    PFNGLGENFRAMEBUFFERSPROC glGenFramebuffers = GLPROC(PFNGLGENFRAMEBUFFERSPROC);
-    PFNGLGENTEXTURESPROC glGenTextures = GLPROC(PFNGLGENTEXTURESPROC);
-    PFNGLBINDFRAMEBUFFERPROC glBindFramebuffer = GLPROC(PFNGLBINDFRAMEBUFFERPROC);
-    PFNGLBINDTEXTUREPROC glBindTexture = GLPROC(PFNGLBINDTEXTUREPROC);
-    PFNGLTEXIMAGE2DPROC glTexImage2D = GLPROC(PFNGLTEXIMAGE2DPROC);
-    PFNGLTEXPARAMETERIPROC glTexParameteri = GLPROC(PFNGLTEXPARAMETERIPROC);
-    PFNGLFRAMEBUFFERTEXTURE2DPROC glFramebufferTexture2D = GLPROC(PFNGLFRAMEBUFFERTEXTURE2DPROC);
+    PFNGLGENFRAMEBUFFERSPROC glGenFramebuffers = GLPROC(GenFramebuffers);
+    PFNGLGENTEXTURESPROC glGenTextures = GLPROC(GenTextures);
+    PFNGLBINDFRAMEBUFFERPROC glBindFramebuffer = GLPROC(BindFramebuffer);
+    PFNGLBINDTEXTUREPROC glBindTexture = GLPROC(BindTexture);
+    PFNGLTEXIMAGE2DPROC glTexImage2D = GLPROC(TexImage2D);
+    PFNGLTEXPARAMETERIPROC glTexParameteri = GLPROC(TexParameteri);
+    PFNGLFRAMEBUFFERTEXTURE2DPROC glFramebufferTexture2D = GLPROC(FramebufferTexture2D);
 
     if (!glGenFramebuffers || !glGenTextures || !glBindFramebuffer ||
         !glBindTexture || !glTexImage2D || !glTexParameteri || !glFramebufferTexture2D) {
@@ -48,7 +59,7 @@ static bool gl_fbo_create(struct video_gl_context *ctx, unsigned width, unsigned
     glGenTextures(1, &ctx->fbo_texture);
 
     glBindTexture(GL_TEXTURE_2D, ctx->fbo_texture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
                  (GLsizei)width, (GLsizei)height, 0,
                  GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -68,8 +79,8 @@ static bool gl_fbo_create(struct video_gl_context *ctx, unsigned width, unsigned
 
 static void gl_fbo_destroy(struct video_gl_context *ctx)
 {
-    PFNGLDELETEFRAMEBUFFERSPROC glDeleteFramebuffers = GLPROC(PFNGLDELETEFRAMEBUFFERSPROC);
-    PFNGLDELETETEXTURESPROC glDeleteTextures = GLPROC(PFNGLDELETETEXTURESPROC);
+    PFNGLDELETEFRAMEBUFFERSPROC glDeleteFramebuffers = GLPROC(DeleteFramebuffers);
+    PFNGLDELETETEXTURESPROC glDeleteTextures = GLPROC(DeleteTextures);
 
     if (glDeleteFramebuffers && ctx->fbo)
         glDeleteFramebuffers(1, &ctx->fbo);
@@ -94,12 +105,43 @@ bool video_gl_init(SDL_Window *window, struct retro_hw_render_callback *hw,
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, (int)hw->version_major);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, (int)hw->version_minor);
 
-    if (hw->context_type == RETRO_HW_CONTEXT_OPENGL_CORE ||
-        hw->context_type == RETRO_HW_CONTEXT_OPENGLES_VERSION) {
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-    } else if (hw->context_type == RETRO_HW_CONTEXT_OPENGLES2 ||
-               hw->context_type == RETRO_HW_CONTEXT_OPENGLES3) {
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    switch (hw->context_type) {
+    case RETRO_HW_CONTEXT_OPENGL:
+#ifdef __APPLE__
+        if (hw->version_major > 3 ||
+            (hw->version_major == 3 && hw->version_minor >= 2)) {
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
+                                SDL_GL_CONTEXT_PROFILE_CORE);
+        }
+        /* else: macOS legacy 2.1 — no profile mask */
+#else
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
+                            SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
+#endif
+        break;
+
+    case RETRO_HW_CONTEXT_OPENGL_CORE:
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
+                            SDL_GL_CONTEXT_PROFILE_CORE);
+        break;
+
+    case RETRO_HW_CONTEXT_OPENGLES2:
+    case RETRO_HW_CONTEXT_OPENGLES3:
+    case RETRO_HW_CONTEXT_OPENGLES_VERSION:
+#ifdef __APPLE__
+        fprintf(stderr, "OpenGL ES not supported on macOS\n");
+        free(ctx);
+        return false;
+#else
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
+                            SDL_GL_CONTEXT_PROFILE_ES);
+#endif
+        break;
+
+    default:
+        fprintf(stderr, "Unsupported HW context type: %d\n", hw->context_type);
+        free(ctx);
+        return false;
     }
 
     if (hw->debug_context)
