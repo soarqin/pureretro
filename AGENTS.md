@@ -12,7 +12,7 @@ PureRetro is a **minimal libretro frontend**. It is educational by design — ev
 |-------|--------|-------------|
 | Phase 1 | ✅ Complete | Project skeleton, documentation, CMake build system, latest `libretro.h` |
 | Phase 2 | ✅ Complete | Software-only working frontend: core loading, video (SDL3 texture), audio (SDL3 stream), input (keyboard → RetroPad) |
-| Phase 3 | 📝 Planned | OpenGL hardware rendering (`docs/PLANNED_WORK.md`) |
+| Phase 3 | ✅ Complete | OpenGL hardware rendering: context creation, FBO management, presentation blit, context lifecycle (`docs/PLANNED_WORK.md`) |
 | Phase 4 | 📝 Planned | Vulkan hardware rendering (`docs/PLANNED_WORK.md`) |
 | Phase 5 | 📝 Planned | Cross-platform polish and testing (`docs/PLANNED_WORK.md`) |
 
@@ -111,6 +111,7 @@ The `core.c` module implements the frontend's `retro_environment_t`. Supported c
 | `SET_PIXEL_FORMAT` | ✅ Implemented | Stores negotiated format in `g_frontend.video.pixel_format`. |
 | `GET_CAN_DUPE` | ✅ Implemented | Always returns true. |
 | `SET_HW_RENDER` | ✅ Implemented | Dispatches to GL or VK renderer; returns false for unsupported types. |
+| `SET_SYSTEM_AV_INFO` | ✅ Implemented | Updates `g_av_info` and resizes the OpenGL FBO if active. |
 | `GET_HW_RENDER_INTERFACE` | 📝 Stub | Returns false (Vulkan not yet fully implemented). |
 | `GET_SYSTEM_DIRECTORY` | ✅ Implemented | Returns NULL. |
 | `GET_SAVE_DIRECTORY` | ✅ Implemented | Returns NULL. |
