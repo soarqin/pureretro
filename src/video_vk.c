@@ -223,6 +223,167 @@ static bool create_command_pool(struct video_vk_context *ctx)
     return vk_check(r, "vkCreateCommandPool");
 }
 
+static bool vk_swapchain_create(struct video_vk_context *ctx, SDL_Window *window)
+{
+    VkSurfaceCapabilitiesKHR caps;
+    VkResult r = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+        ctx->physical_device, ctx->surface, &caps);
+    if (!vk_check(r, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR"))
+        return false;
+
+    /* Choose format */
+    uint32_t fmt_count = 0;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(ctx->physical_device, ctx->surface, &fmt_count, NULL);
+    VkSurfaceFormatKHR *formats = malloc(sizeof(VkSurfaceFormatKHR) * fmt_count);
+    if (!formats)
+        return false;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(ctx->physical_device, ctx->surface, &fmt_count, formats);
+
+    VkSurfaceFormatKHR chosen = formats[0];
+    for (uint32_t i = 0; i < fmt_count; ++i) {
+        if ((formats[i].format == VK_FORMAT_B8G8R8A8_UNORM ||
+             formats[i].format == VK_FORMAT_R8G8B8A8_UNORM) &&
+            formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+            chosen = formats[i];
+            break;
+        }
+    }
+    free(formats);
+    ctx->swapchain_format = chosen.format;
+
+    /* Choose present mode: prefer FIFO (vsync) */
+    uint32_t pm_count = 0;
+    vkGetPhysicalDeviceSurfacePresentModesKHR(ctx->physical_device, ctx->surface, &pm_count, NULL);
+    VkPresentModeKHR *modes = malloc(sizeof(VkPresentModeKHR) * pm_count);
+    if (!modes) {
+        free(formats);
+        return false;
+    }
+    vkGetPhysicalDeviceSurfacePresentModesKHR(ctx->physical_device, ctx->surface, &pm_count, modes);
+
+    VkPresentModeKHR present_mode = VK_PRESENT_MODE_FIFO_KHR;
+    for (uint32_t i = 0; i < pm_count; ++i) {
+        if (modes[i] == VK_PRESENT_MODE_FIFO_KHR) {
+            present_mode = modes[i];
+            break;
+        }
+    }
+    free(modes);
+
+    /* Extent */
+    VkExtent2D extent;
+    if (caps.currentExtent.width != UINT32_MAX) {
+        extent = caps.currentExtent;
+    } else {
+        int w, h;
+        SDL_GetWindowSizeInPixels(window, &w, &h);
+        extent.width = (uint32_t)w;
+        extent.height = (uint32_t)h;
+        if (extent.width < caps.minImageExtent.width)
+            extent.width = caps.minImageExtent.width;
+        if (extent.width > caps.maxImageExtent.width)
+            extent.width = caps.maxImageExtent.width;
+        if (extent.height < caps.minImageExtent.height)
+            extent.height = caps.minImageExtent.height;
+        if (extent.height > caps.maxImageExtent.height)
+            extent.height = caps.maxImageExtent.height;
+    }
+    ctx->swapchain_extent = extent;
+
+    /* Image count */
+    uint32_t image_count = caps.minImageCount + 1;
+    if (caps.maxImageCount > 0 && image_count > caps.maxImageCount)
+        image_count = caps.maxImageCount;
+
+    VkSwapchainCreateInfoKHR sci = {0};
+    sci.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+    sci.surface = ctx->surface;
+    sci.minImageCount = image_count;
+    sci.imageFormat = chosen.format;
+    sci.imageColorSpace = chosen.colorSpace;
+    sci.imageExtent = extent;
+    sci.imageArrayLayers = 1;
+    sci.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    sci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    sci.queueFamilyIndexCount = 1;
+    sci.pQueueFamilyIndices = &ctx->queue_family_index;
+    sci.preTransform = caps.currentTransform;
+    sci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    sci.presentMode = present_mode;
+    sci.clipped = VK_TRUE;
+    sci.oldSwapchain = ctx->swapchain;
+
+    VkSwapchainKHR old_swapchain = ctx->swapchain;
+    r = vkCreateSwapchainKHR(ctx->device, &sci, NULL, &ctx->swapchain);
+    if (!vk_check(r, "vkCreateSwapchainKHR"))
+        return false;
+
+    if (old_swapchain != VK_NULL_HANDLE)
+        vkDestroySwapchainKHR(ctx->device, old_swapchain, NULL);
+
+    /* Retrieve swapchain images */
+    vkGetSwapchainImagesKHR(ctx->device, ctx->swapchain, &ctx->image_count, NULL);
+    ctx->swapchain_images = calloc(ctx->image_count, sizeof(VkImage));
+    ctx->swapchain_views = calloc(ctx->image_count, sizeof(VkImageView));
+    ctx->framebuffers = calloc(ctx->image_count, sizeof(VkFramebuffer));
+    ctx->cmd_buffers = calloc(ctx->image_count, sizeof(VkCommandBuffer));
+    vkGetSwapchainImagesKHR(ctx->device, ctx->swapchain, &ctx->image_count, ctx->swapchain_images);
+
+    /* Create image views */
+    for (uint32_t i = 0; i < ctx->image_count; ++i) {
+        VkImageViewCreateInfo ivci = {0};
+        ivci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        ivci.image = ctx->swapchain_images[i];
+        ivci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        ivci.format = ctx->swapchain_format;
+        ivci.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+        ivci.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+        ivci.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+        ivci.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+        ivci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        ivci.subresourceRange.baseMipLevel = 0;
+        ivci.subresourceRange.levelCount = 1;
+        ivci.subresourceRange.baseArrayLayer = 0;
+        ivci.subresourceRange.layerCount = 1;
+
+        r = vkCreateImageView(ctx->device, &ivci, NULL, &ctx->swapchain_views[i]);
+        if (!vk_check(r, "vkCreateImageView"))
+            return false;
+    }
+
+    /* Allocate command buffers */
+    VkCommandBufferAllocateInfo cbai = {0};
+    cbai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    cbai.commandPool = ctx->cmd_pool;
+    cbai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    cbai.commandBufferCount = ctx->image_count;
+    r = vkAllocateCommandBuffers(ctx->device, &cbai, ctx->cmd_buffers);
+    if (!vk_check(r, "vkAllocateCommandBuffers"))
+        return false;
+
+    /* Create sync objects */
+    VkSemaphoreCreateInfo sci_sem = {0};
+    sci_sem.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    VkFenceCreateInfo fci = {0};
+    fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+    for (int i = 0; i < VK_MAX_FRAMES_IN_FLIGHT; ++i) {
+        r = vkCreateSemaphore(ctx->device, &sci_sem, NULL, &ctx->image_available[i]);
+        if (!vk_check(r, "vkCreateSemaphore (image_available)"))
+            return false;
+        r = vkCreateSemaphore(ctx->device, &sci_sem, NULL, &ctx->render_finished[i]);
+        if (!vk_check(r, "vkCreateSemaphore (render_finished)"))
+            return false;
+        r = vkCreateFence(ctx->device, &fci, NULL, &ctx->frame_fence[i]);
+        if (!vk_check(r, "vkCreateFence"))
+            return false;
+    }
+
+    return true;
+}
+
 /* --- Stubs for functions implemented in later tasks --- */
 
 bool video_vk_init(SDL_Window *window, struct retro_hw_render_callback *hw,
