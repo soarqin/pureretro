@@ -270,6 +270,18 @@ void video_gl_destroy(struct video_gl_context *ctx)
     free(ctx);
 }
 
+bool video_gl_resize(struct video_gl_context *ctx, unsigned width, unsigned height)
+{
+    if (!ctx)
+        return false;
+
+    if (ctx->fbo_width == width && ctx->fbo_height == height)
+        return true;
+
+    gl_fbo_destroy(ctx);
+    return gl_fbo_create(ctx, width, height);
+}
+
 void video_gl_context_reset(struct video_gl_context *ctx)
 {
     (void)ctx;

@@ -41,6 +41,10 @@ bool video_gl_init(SDL_Window *window, struct retro_hw_render_callback *hw,
 /* Destroy the OpenGL renderer and all GL resources. */
 void video_gl_destroy(struct video_gl_context *ctx);
 
+/* Resize the FBO (and its attachments) to new dimensions.
+ * Destroys and recreates the FBO if the size changed. */
+bool video_gl_resize(struct video_gl_context *ctx, unsigned width, unsigned height);
+
 /* Called after the GL context is created or reset. */
 void video_gl_context_reset(struct video_gl_context *ctx);
 
