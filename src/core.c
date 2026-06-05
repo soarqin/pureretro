@@ -252,6 +252,8 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
 
     case RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY:
         *(const char **)data = g_frontend.system_directory;
+        fprintf(stderr, "Core queried system directory: %s\n",
+                g_frontend.system_directory ? g_frontend.system_directory : "(null)");
         return true;
 
     case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT: {
@@ -346,6 +348,7 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
 
     case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY:
         *(const char **)data = NULL;
+        fprintf(stderr, "Core queried save directory: (null - core will use system directory)\n");
         return true;
 
     case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO: {
@@ -378,6 +381,9 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
 #endif
 
     default:
+        /* Log unhandled callbacks to help diagnose core compatibility issues.
+         * Many cores call callbacks we don't implement; this is normal. */
+        fprintf(stderr, "Unhandled env callback: %d\n", (int)cmd);
         return false;
     }
 }

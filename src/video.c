@@ -40,7 +40,7 @@ bool video_init(const char *title, unsigned width, unsigned height)
         return false;
     }
 
-    fprintf(stderr, "Initial renderer: %s (software fallback)\n",
+    fprintf(stderr, "Video initialized: default renderer is %s (will switch when core calls SET_HW_RENDER)\n",
             renderer_name(v->renderer));
 
     return true;
