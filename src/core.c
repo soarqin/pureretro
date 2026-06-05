@@ -13,6 +13,7 @@
 #include "core.h"
 #include "frontend.h"
 #include "video.h"
+#include "video_gl.h"
 #include "audio.h"
 #include "input.h"
 
@@ -323,6 +324,21 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
     case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY:
         *(const char **)data = NULL;
         return true;
+
+    case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO: {
+        const struct retro_system_av_info *av =
+            (const struct retro_system_av_info *)data;
+        g_av_info = *av;
+
+        if (g_frontend.video.hw_render_enabled &&
+            g_frontend.video.renderer == VIDEO_RENDERER_OPENGL &&
+            g_frontend.video.gl) {
+            video_gl_resize(g_frontend.video.gl,
+                            av->geometry.max_width,
+                            av->geometry.max_height);
+        }
+        return true;
+    }
 
     default:
         return false;

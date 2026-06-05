@@ -103,11 +103,19 @@ void video_process_event(const SDL_Event *event)
 
     if (event->type == SDL_EVENT_WINDOW_RESIZED ||
         event->type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) {
-        /* Track new window dimensions.
-         * The software renderer recreates its texture automatically
-         * on the next frame if dimensions changed. */
         v->frame_width  = (unsigned)event->window.data1;
         v->frame_height = (unsigned)event->window.data2;
+
+        if (v->hw_render_enabled && v->renderer == VIDEO_RENDERER_OPENGL &&
+            v->gl && !v->gl->cache_context) {
+            video_gl_context_destroy(v->gl);
+            video_gl_destroy(v->gl);
+            v->gl = NULL;
+            if (!video_gl_init(v->window, &v->hw, &v->gl)) {
+                fprintf(stderr, "Failed to recreate GL context after resize\n");
+                g_frontend.running = false;
+            }
+        }
     }
 }
 
