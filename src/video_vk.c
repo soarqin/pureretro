@@ -233,11 +233,17 @@ static bool vk_swapchain_create(struct video_vk_context *ctx, SDL_Window *window
 
     /* Choose format */
     uint32_t fmt_count = 0;
-    vkGetPhysicalDeviceSurfaceFormatsKHR(ctx->physical_device, ctx->surface, &fmt_count, NULL);
+    r = vkGetPhysicalDeviceSurfaceFormatsKHR(ctx->physical_device, ctx->surface, &fmt_count, NULL);
+    if (!vk_check(r, "vkGetPhysicalDeviceSurfaceFormatsKHR"))
+        return false;
     VkSurfaceFormatKHR *formats = malloc(sizeof(VkSurfaceFormatKHR) * fmt_count);
     if (!formats)
         return false;
-    vkGetPhysicalDeviceSurfaceFormatsKHR(ctx->physical_device, ctx->surface, &fmt_count, formats);
+    r = vkGetPhysicalDeviceSurfaceFormatsKHR(ctx->physical_device, ctx->surface, &fmt_count, formats);
+    if (!vk_check(r, "vkGetPhysicalDeviceSurfaceFormatsKHR")) {
+        free(formats);
+        return false;
+    }
 
     VkSurfaceFormatKHR chosen = formats[0];
     for (uint32_t i = 0; i < fmt_count; ++i) {
@@ -251,18 +257,24 @@ static bool vk_swapchain_create(struct video_vk_context *ctx, SDL_Window *window
     free(formats);
     ctx->swapchain_format = chosen.format;
 
-    /* Choose present mode: prefer FIFO (vsync) */
+    /* Choose present mode: prefer FIFO (vsync), fallback to first available */
     uint32_t pm_count = 0;
-    vkGetPhysicalDeviceSurfacePresentModesKHR(ctx->physical_device, ctx->surface, &pm_count, NULL);
+    r = vkGetPhysicalDeviceSurfacePresentModesKHR(ctx->physical_device, ctx->surface, &pm_count, NULL);
+    if (!vk_check(r, "vkGetPhysicalDeviceSurfacePresentModesKHR"))
+        return false;
     VkPresentModeKHR *modes = malloc(sizeof(VkPresentModeKHR) * pm_count);
     if (!modes)
         return false;
-    vkGetPhysicalDeviceSurfacePresentModesKHR(ctx->physical_device, ctx->surface, &pm_count, modes);
+    r = vkGetPhysicalDeviceSurfacePresentModesKHR(ctx->physical_device, ctx->surface, &pm_count, modes);
+    if (!vk_check(r, "vkGetPhysicalDeviceSurfacePresentModesKHR")) {
+        free(modes);
+        return false;
+    }
 
-    VkPresentModeKHR present_mode = VK_PRESENT_MODE_FIFO_KHR;
+    VkPresentModeKHR present_mode = modes[0];
     for (uint32_t i = 0; i < pm_count; ++i) {
         if (modes[i] == VK_PRESENT_MODE_FIFO_KHR) {
-            present_mode = modes[i];
+            present_mode = VK_PRESENT_MODE_FIFO_KHR;
             break;
         }
     }
@@ -293,6 +305,17 @@ static bool vk_swapchain_create(struct video_vk_context *ctx, SDL_Window *window
     if (caps.maxImageCount > 0 && image_count > caps.maxImageCount)
         image_count = caps.maxImageCount;
 
+    /* Free old arrays before overwriting (swapchain recreation path) */
+    free(ctx->swapchain_images);
+    free(ctx->swapchain_views);
+    free(ctx->framebuffers);
+    free(ctx->cmd_buffers);
+    ctx->swapchain_images = NULL;
+    ctx->swapchain_views = NULL;
+    ctx->framebuffers = NULL;
+    ctx->cmd_buffers = NULL;
+    ctx->image_count = 0;
+
     VkSwapchainCreateInfoKHR sci = {0};
     sci.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
     sci.surface = ctx->surface;
@@ -320,12 +343,16 @@ static bool vk_swapchain_create(struct video_vk_context *ctx, SDL_Window *window
         vkDestroySwapchainKHR(ctx->device, old_swapchain, NULL);
 
     /* Retrieve swapchain images */
-    vkGetSwapchainImagesKHR(ctx->device, ctx->swapchain, &ctx->image_count, NULL);
+    r = vkGetSwapchainImagesKHR(ctx->device, ctx->swapchain, &ctx->image_count, NULL);
+    if (!vk_check(r, "vkGetSwapchainImagesKHR"))
+        return false;
     ctx->swapchain_images = calloc(ctx->image_count, sizeof(VkImage));
     ctx->swapchain_views = calloc(ctx->image_count, sizeof(VkImageView));
     ctx->framebuffers = calloc(ctx->image_count, sizeof(VkFramebuffer));
     ctx->cmd_buffers = calloc(ctx->image_count, sizeof(VkCommandBuffer));
-    vkGetSwapchainImagesKHR(ctx->device, ctx->swapchain, &ctx->image_count, ctx->swapchain_images);
+    r = vkGetSwapchainImagesKHR(ctx->device, ctx->swapchain, &ctx->image_count, ctx->swapchain_images);
+    if (!vk_check(r, "vkGetSwapchainImagesKHR"))
+        return false;
 
     /* Create image views */
     for (uint32_t i = 0; i < ctx->image_count; ++i) {
