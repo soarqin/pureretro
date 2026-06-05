@@ -115,6 +115,10 @@ void video_process_event(const SDL_Event *event)
                 g_frontend.running = false;
             }
         }
+
+        if (v->hw_render_enabled && v->renderer == VIDEO_RENDERER_VULKAN && v->vk) {
+            video_vk_resize(v->vk, v->window);
+        }
     }
 }
 

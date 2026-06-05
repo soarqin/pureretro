@@ -14,6 +14,7 @@
 #include "frontend.h"
 #include "video.h"
 #include "video_gl.h"
+#include "video_vk.h"
 #include "audio.h"
 #include "input.h"
 
@@ -337,6 +338,15 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
                             av->geometry.max_width,
                             av->geometry.max_height);
         }
+        return true;
+    }
+
+    case RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE: {
+        if (g_frontend.video.renderer != VIDEO_RENDERER_VULKAN || !g_frontend.video.vk)
+            return false;
+        const struct retro_hw_render_interface **iface =
+            (const struct retro_hw_render_interface **)data;
+        *iface = (const struct retro_hw_render_interface *)&g_frontend.video.vk->hw_if;
         return true;
     }
 
