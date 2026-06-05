@@ -141,7 +141,7 @@ static bool select_physical_device(struct video_vk_context *ctx)
         for (uint32_t q = 0; q < qf_count; ++q) {
             VkBool32 present_support = VK_FALSE;
             r = vkGetPhysicalDeviceSurfaceSupportKHR(devices[i], q, ctx->surface, &present_support);
-            if (r != VK_SUCCESS)
+            if (!vk_check(r, "vkGetPhysicalDeviceSurfaceSupportKHR"))
                 continue;
 
             if ((qf_props[q].queueFlags & VK_QUEUE_GRAPHICS_BIT) && present_support) {
