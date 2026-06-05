@@ -107,15 +107,12 @@ static bool frontend_init(void)
      * Cores like Beetle PSX HW look here for scph5500.bin etc. */
     const char *pref = SDL_GetPrefPath("pureretro", "system");
     if (pref) {
-        /* SDL_GetPrefPath returns a path ending with a separator; strip it
-         * so we can append "system" consistently across platforms. */
+        /* SDL_GetPrefPath already appends the app name ("system") and a
+         * trailing separator. Copy it into our own buffer. */
         size_t len = strlen(pref);
-        if (len > 0 && (pref[len-1] == '/' || pref[len-1] == '\\'))
-            len--;
-        char *path = malloc(len + 7); /* "system" + NUL */
-        if (path) {
-            snprintf(path, len + 7, "%.*ssystem", (int)len, pref);
-            g_frontend.system_directory = path;
+        g_frontend.system_directory = malloc(len + 1);
+        if (g_frontend.system_directory) {
+            memcpy(g_frontend.system_directory, pref, len + 1);
             fprintf(stderr, "System directory: %s\n", g_frontend.system_directory);
             /* Create the directory if it doesn't exist (best-effort) */
             SDL_CreateDirectory(g_frontend.system_directory);
