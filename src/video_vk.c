@@ -539,10 +539,6 @@ bool video_vk_init(SDL_Window *window, struct retro_hw_render_callback *hw,
     ctx->hw_if.set_signal_semaphore = vk_set_signal_semaphore;
 
     *out_ctx = ctx;
-
-    if (hw->context_reset)
-        hw->context_reset();
-
     return true;
 
 fail:

@@ -236,6 +236,13 @@ bool video_gl_init(SDL_Window *window, struct retro_hw_render_callback *hw,
         return false;
     }
 
+    if (!SDL_GL_MakeCurrent(window, ctx->gl_context)) {
+        fprintf(stderr, "SDL_GL_MakeCurrent failed: %s\n", SDL_GetError());
+        SDL_GL_DestroyContext(ctx->gl_context);
+        free(ctx);
+        return false;
+    }
+
     /* Enable vsync. */
     SDL_GL_SetSwapInterval(1);
 
@@ -260,11 +267,6 @@ bool video_gl_init(SDL_Window *window, struct retro_hw_render_callback *hw,
     }
 
     *out_ctx = ctx;
-
-    /* Notify the core that the context is ready. */
-    if (hw->context_reset)
-        hw->context_reset();
-
     return true;
 }
 

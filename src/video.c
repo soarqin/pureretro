@@ -197,14 +197,19 @@ bool video_set_hw_render(struct retro_hw_render_callback *hw)
         }
         v->renderer = VIDEO_RENDERER_OPENGL;
         v->hw_render_enabled = true;
-        memcpy(&v->hw, hw, sizeof(v->hw));
         hw->get_current_framebuffer = video_get_current_framebuffer;
         hw->get_proc_address = video_get_proc_address;
+        memcpy(&v->hw, hw, sizeof(v->hw));
         fprintf(stderr, "Active renderer: gl (opengl)\n");
         if (g_frontend.preferred_renderer != VIDEO_RENDERER_NONE &&
             g_frontend.preferred_renderer != VIDEO_RENDERER_OPENGL) {
             fprintf(stderr, "  warning: user preferred '%s' but core chose 'gl'\n",
                     renderer_name(g_frontend.preferred_renderer));
+        }
+        if (hw->context_reset) {
+            fprintf(stderr, "Calling context_reset...\n");
+            hw->context_reset();
+            fprintf(stderr, "context_reset returned.\n");
         }
         return true;
     }
@@ -213,16 +218,21 @@ bool video_set_hw_render(struct retro_hw_render_callback *hw)
     case RETRO_HW_CONTEXT_VULKAN:
         v->renderer = VIDEO_RENDERER_VULKAN;
         v->hw_render_enabled = true;
-        memcpy(&v->hw, hw, sizeof(v->hw));
         if (!video_vk_init(v->window, hw, &v->vk))
             return false;
         hw->get_current_framebuffer = video_get_current_framebuffer;
         hw->get_proc_address = video_get_proc_address;
+        memcpy(&v->hw, hw, sizeof(v->hw));
         fprintf(stderr, "Active renderer: vk (vulkan)\n");
         if (g_frontend.preferred_renderer != VIDEO_RENDERER_NONE &&
             g_frontend.preferred_renderer != VIDEO_RENDERER_VULKAN) {
             fprintf(stderr, "  warning: user preferred '%s' but core chose 'vk'\n",
                     renderer_name(g_frontend.preferred_renderer));
+        }
+        if (hw->context_reset) {
+            fprintf(stderr, "Calling context_reset...\n");
+            hw->context_reset();
+            fprintf(stderr, "context_reset returned.\n");
         }
         return true;
 #endif
