@@ -323,8 +323,17 @@ void video_gl_present(struct video_gl_context *ctx)
     PFNGLCLEARPROC glClear = GLPROC(Clear);
     PFNGLVIEWPORTPROC glViewport = GLPROC(Viewport);
 
-    if (!glBindFramebuffer || !glBlitFramebuffer)
+    if (!glBindFramebuffer) {
+        fprintf(stderr, "video_gl_present: glBindFramebuffer not available\n");
+        SDL_GL_SwapWindow(g_frontend.video.window);
         return;
+    }
+
+    if (!glBlitFramebuffer) {
+        fprintf(stderr, "video_gl_present: glBlitFramebuffer not available, swapping only\n");
+        SDL_GL_SwapWindow(g_frontend.video.window);
+        return;
+    }
 
     int w, h;
     SDL_GetWindowSizeInPixels(g_frontend.video.window, &w, &h);

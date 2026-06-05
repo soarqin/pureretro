@@ -200,8 +200,8 @@ int main(int argc, char *argv[])
 
     if (!core_init(g_frontend.content_path)) {
         fprintf(stderr, "Failed to initialize core\n");
-        core_unload();
         frontend_shutdown();
+        core_unload();
         return EXIT_FAILURE;
     }
 
@@ -234,8 +234,8 @@ int main(int argc, char *argv[])
 
     run_loop();
 
-    core_unload();
     frontend_shutdown();
+    core_unload();
 
     return EXIT_SUCCESS;
 }

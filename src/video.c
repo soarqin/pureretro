@@ -250,11 +250,12 @@ bool video_set_hw_render(struct retro_hw_render_callback *hw)
 uintptr_t video_get_current_framebuffer(void)
 {
     struct video_state *v = &g_frontend.video;
+    uintptr_t fb = 0;
 
     switch (v->renderer) {
     case VIDEO_RENDERER_OPENGL:
         if (v->gl)
-            return video_gl_get_current_framebuffer(v->gl);
+            fb = video_gl_get_current_framebuffer(v->gl);
         break;
 #ifdef PURERETRO_VULKAN_ENABLED
     case VIDEO_RENDERER_VULKAN:
@@ -265,7 +266,8 @@ uintptr_t video_get_current_framebuffer(void)
         break;
     }
 
-    return 0;
+    fprintf(stderr, "get_current_framebuffer -> %llu\n", (unsigned long long)fb);
+    return fb;
 }
 
 retro_proc_address_t video_get_proc_address(const char *sym)
