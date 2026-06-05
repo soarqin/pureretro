@@ -128,9 +128,6 @@ static bool select_physical_device(struct video_vk_context *ctx)
     }
 
     for (uint32_t i = 0; i < count; ++i) {
-        VkPhysicalDeviceProperties props;
-        vkGetPhysicalDeviceProperties(devices[i], &props);
-
         uint32_t qf_count = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(devices[i], &qf_count, NULL);
         VkQueueFamilyProperties *qf_props = malloc(sizeof(VkQueueFamilyProperties) * qf_count);
