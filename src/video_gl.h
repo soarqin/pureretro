@@ -31,6 +31,9 @@ struct video_gl_context
 
     /* Cached proc addresses */
     retro_hw_get_proc_address_t get_proc_address;
+
+    bool cache_context;          /* copied from hw->cache_context */
+    bool bottom_left_origin;     /* copied from hw->bottom_left_origin */
 };
 
 /* Initialize the OpenGL renderer for the given window.

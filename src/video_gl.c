@@ -240,6 +240,9 @@ bool video_gl_init(SDL_Window *window, struct retro_hw_render_callback *hw,
         return false;
     }
 
+    ctx->cache_context = hw->cache_context;
+    ctx->bottom_left_origin = hw->bottom_left_origin;
+
     /* Create an FBO for the core to render into. */
     if (!gl_fbo_create(ctx, g_av_info.geometry.max_width, g_av_info.geometry.max_height)) {
         SDL_GL_DestroyContext(ctx->gl_context);
@@ -260,6 +263,8 @@ void video_gl_destroy(struct video_gl_context *ctx)
 {
     if (!ctx)
         return;
+
+    video_gl_context_destroy(ctx);
 
     if (ctx->fbo)
         gl_fbo_destroy(ctx);
@@ -285,13 +290,18 @@ bool video_gl_resize(struct video_gl_context *ctx, unsigned width, unsigned heig
 void video_gl_context_reset(struct video_gl_context *ctx)
 {
     (void)ctx;
-    /* Context reset is handled by the hw callback in video_gl_init. */
+
+    if (g_frontend.video.hw.context_reset)
+        g_frontend.video.hw.context_reset();
 }
 
 void video_gl_context_destroy(struct video_gl_context *ctx)
 {
-    (void)ctx;
-    /* TODO: Notify the core via hw->context_destroy if set. */
+    if (!ctx)
+        return;
+
+    if (g_frontend.video.hw.context_destroy)
+        g_frontend.video.hw.context_destroy();
 }
 
 void video_gl_present(struct video_gl_context *ctx)
