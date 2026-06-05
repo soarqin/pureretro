@@ -270,6 +270,17 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
     case RETRO_ENVIRONMENT_SET_HW_RENDER:
         return video_set_hw_render((struct retro_hw_render_callback *)data);
 
+    case RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER: {
+        int *preferred = (int *)data;
+        switch (g_frontend.preferred_renderer) {
+        case VIDEO_RENDERER_VULKAN: *preferred = RETRO_HW_CONTEXT_VULKAN;    return true;
+        case VIDEO_RENDERER_OPENGL: *preferred = RETRO_HW_CONTEXT_OPENGL_CORE; return true;
+        case VIDEO_RENDERER_SW:     *preferred = RETRO_HW_CONTEXT_NONE;      return true;
+        case VIDEO_RENDERER_NONE:
+        default:                    return false;
+        }
+    }
+
     case RETRO_ENVIRONMENT_GET_VARIABLE:
         return false;
 

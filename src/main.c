@@ -20,9 +20,30 @@ struct frontend_state g_frontend;
 
 static void print_usage(const char *argv0)
 {
-    fprintf(stderr, "Usage: %s <core> <content>\n", argv0);
+    fprintf(stderr, "Usage: %s <core> <content> [options]\n", argv0);
     fprintf(stderr, "  <core>     Path to the libretro core (e.g., nestopia_libretro.so)\n");
     fprintf(stderr, "  <content>  Path to the game ROM or content file\n");
+    fprintf(stderr, "Options:\n");
+    fprintf(stderr, "  --fullscreen, -f    Start in fullscreen mode\n");
+    fprintf(stderr, "  --render <api>      Hint preferred renderer: vk, gl, or sw\n");
+    fprintf(stderr, "                      (Core may still choose a different renderer.)\n");
+}
+
+static bool parse_render(const char *arg, enum video_renderer *out)
+{
+    if (strcmp(arg, "vk") == 0) {
+        *out = VIDEO_RENDERER_VULKAN;
+        return true;
+    }
+    if (strcmp(arg, "gl") == 0) {
+        *out = VIDEO_RENDERER_OPENGL;
+        return true;
+    }
+    if (strcmp(arg, "sw") == 0) {
+        *out = VIDEO_RENDERER_SW;
+        return true;
+    }
+    return false;
 }
 
 static bool parse_args(int argc, char *argv[])
@@ -48,6 +69,18 @@ static bool parse_args(int argc, char *argv[])
         if (strcmp(argv[i], "--fullscreen") == 0 ||
             strcmp(argv[i], "-f") == 0) {
             g_frontend.fullscreen = true;
+        } else if (strcmp(argv[i], "--render") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--render requires an argument (vk, gl, or sw)\n");
+                print_usage(argv[0]);
+                return false;
+            }
+            if (!parse_render(argv[++i], &g_frontend.preferred_renderer)) {
+                fprintf(stderr, "Invalid renderer: '%s' (expected vk, gl, or sw)\n",
+                        argv[i]);
+                print_usage(argv[0]);
+                return false;
+            }
         } else {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             print_usage(argv[0]);

@@ -73,6 +73,11 @@ struct frontend_state
     bool running;
     bool fullscreen;
 
+    /* User-requested renderer preference (VIDEO_RENDERER_NONE = no preference).
+     * Set via the --render CLI flag. The core may still request a different
+     * renderer; this is a hint, not a hard requirement. */
+    enum video_renderer preferred_renderer;
+
     struct video_state video;
 
     /* Audio stream handle */
