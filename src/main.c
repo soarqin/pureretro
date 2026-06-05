@@ -183,6 +183,11 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
+    /* Log the final renderer state after core init. If the core never called
+     * SET_HW_RENDER (e.g. software-only core), this still shows sw. */
+    fprintf(stderr, "Final active renderer: %s\n",
+            renderer_name(g_frontend.video.renderer));
+
     /* Initialize audio now that we know the core's sample rate */
     if (!audio_init(g_av_info.timing.sample_rate)) {
         fprintf(stderr, "Warning: failed to initialize audio\n");

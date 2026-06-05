@@ -40,6 +40,9 @@ bool video_init(const char *title, unsigned width, unsigned height)
         return false;
     }
 
+    fprintf(stderr, "Initial renderer: %s (software fallback)\n",
+            renderer_name(v->renderer));
+
     return true;
 }
 
@@ -210,7 +213,11 @@ bool video_set_hw_render(struct retro_hw_render_callback *hw)
 #endif
 
     default:
-        fprintf(stderr, "Unsupported HW context type: %d\n", hw->context_type);
+        fprintf(stderr, "Unsupported HW context type: %s (%d)\n",
+                hw_context_name(hw->context_type), (int)hw->context_type);
+        if (g_frontend.preferred_renderer != VIDEO_RENDERER_NONE)
+            fprintf(stderr, "  user preferred '%s' but core requested an unsupported context\n",
+                    renderer_name(g_frontend.preferred_renderer));
         return false;
     }
 }
