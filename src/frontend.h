@@ -97,6 +97,18 @@ struct frontend_state
 
 extern struct frontend_state g_frontend;
 
+/* Convert enum video_renderer to a short human-readable string. */
+static inline const char *renderer_name(enum video_renderer r)
+{
+    switch (r) {
+    case VIDEO_RENDERER_NONE:   return "none";
+    case VIDEO_RENDERER_SW:     return "sw";
+    case VIDEO_RENDERER_OPENGL: return "gl";
+    case VIDEO_RENDERER_VULKAN: return "vk";
+    }
+    return "?";
+}
+
 #ifdef __cplusplus
 }
 #endif

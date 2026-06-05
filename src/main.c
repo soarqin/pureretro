@@ -81,6 +81,8 @@ static bool parse_args(int argc, char *argv[])
                 print_usage(argv[0]);
                 return false;
             }
+            fprintf(stderr, "Renderer preference: %s\n",
+                    renderer_name(g_frontend.preferred_renderer));
         } else {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             print_usage(argv[0]);

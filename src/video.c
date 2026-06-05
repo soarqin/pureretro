@@ -127,9 +127,30 @@ void video_process_event(const SDL_Event *event)
     }
 }
 
+static const char *hw_context_name(enum retro_hw_context_type t)
+{
+    switch (t) {
+    case RETRO_HW_CONTEXT_NONE:             return "none";
+    case RETRO_HW_CONTEXT_OPENGL:           return "opengl";
+    case RETRO_HW_CONTEXT_OPENGLES2:        return "opengles2";
+    case RETRO_HW_CONTEXT_OPENGL_CORE:      return "opengl-core";
+    case RETRO_HW_CONTEXT_OPENGLES3:        return "opengles3";
+    case RETRO_HW_CONTEXT_OPENGLES_VERSION: return "opengles-version";
+    case RETRO_HW_CONTEXT_VULKAN:           return "vulkan";
+    case RETRO_HW_CONTEXT_D3D9:             return "d3d9";
+    case RETRO_HW_CONTEXT_D3D10:            return "d3d10";
+    case RETRO_HW_CONTEXT_D3D11:            return "d3d11";
+    case RETRO_HW_CONTEXT_D3D12:            return "d3d12";
+    case RETRO_HW_CONTEXT_DUMMY:            return "dummy";
+    }
+    return "?";
+}
+
 bool video_set_hw_render(struct retro_hw_render_callback *hw)
 {
     struct video_state *v = &g_frontend.video;
+
+    fprintf(stderr, "Core requested HW context: %s\n", hw_context_name(hw->context_type));
 
     /* Destroy the software renderer before switching to HW. */
     if (v->sw) {
@@ -142,7 +163,10 @@ bool video_set_hw_render(struct retro_hw_render_callback *hw)
         /* Core changed its mind; stay software. */
         v->hw_render_enabled = false;
         v->renderer = VIDEO_RENDERER_SW;
-        return video_sw_init(v->window, &v->sw);
+        if (!video_sw_init(v->window, &v->sw))
+            return false;
+        fprintf(stderr, "Active renderer: sw (software)\n");
+        return true;
 
     case RETRO_HW_CONTEXT_OPENGL:
     case RETRO_HW_CONTEXT_OPENGLES2:
@@ -158,6 +182,12 @@ bool video_set_hw_render(struct retro_hw_render_callback *hw)
         memcpy(&v->hw, hw, sizeof(v->hw));
         hw->get_current_framebuffer = video_get_current_framebuffer;
         hw->get_proc_address = video_get_proc_address;
+        fprintf(stderr, "Active renderer: gl (opengl)\n");
+        if (g_frontend.preferred_renderer != VIDEO_RENDERER_NONE &&
+            g_frontend.preferred_renderer != VIDEO_RENDERER_OPENGL) {
+            fprintf(stderr, "  warning: user preferred '%s' but core chose 'gl'\n",
+                    renderer_name(g_frontend.preferred_renderer));
+        }
         return true;
     }
 
@@ -170,6 +200,12 @@ bool video_set_hw_render(struct retro_hw_render_callback *hw)
             return false;
         hw->get_current_framebuffer = video_get_current_framebuffer;
         hw->get_proc_address = video_get_proc_address;
+        fprintf(stderr, "Active renderer: vk (vulkan)\n");
+        if (g_frontend.preferred_renderer != VIDEO_RENDERER_NONE &&
+            g_frontend.preferred_renderer != VIDEO_RENDERER_VULKAN) {
+            fprintf(stderr, "  warning: user preferred '%s' but core chose 'vk'\n",
+                    renderer_name(g_frontend.preferred_renderer));
+        }
         return true;
 #endif
 
