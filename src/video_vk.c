@@ -774,9 +774,23 @@ void video_vk_present(struct video_vk_context *ctx)
 retro_proc_address_t video_vk_get_proc_address(struct video_vk_context *ctx,
                                                 const char *sym)
 {
-    (void)ctx;
-    (void)sym;
-    /* Implemented in Task 8 */
+    if (!ctx)
+        return NULL;
+
+    /* Try device proc address first (covers most functions) */
+    if (ctx->get_device_proc_addr) {
+        PFN_vkVoidFunction fp = ctx->get_device_proc_addr(ctx->device, sym);
+        if (fp)
+            return (retro_proc_address_t)fp;
+    }
+
+    /* Fallback to instance proc address */
+    if (ctx->get_instance_proc_addr) {
+        PFN_vkVoidFunction fp = ctx->get_instance_proc_addr(ctx->instance, sym);
+        if (fp)
+            return (retro_proc_address_t)fp;
+    }
+
     return NULL;
 }
 
