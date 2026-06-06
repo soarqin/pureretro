@@ -86,6 +86,12 @@ retro_proc_address_t video_vk_get_proc_address(struct video_vk_context *ctx,
 /* Recreate swapchain after resize. */
 bool video_vk_resize(struct video_vk_context *ctx, SDL_Window *window);
 
+/* Call the core's Vulkan context-negotiation create_device callback.
+ * This must be called after video_vk_init has created the instance and surface.
+ */
+bool video_vk_negotiate_device(struct video_vk_context *ctx,
+                               const struct retro_hw_render_context_negotiation_interface *iface);
+
 #ifdef __cplusplus
 }
 #endif

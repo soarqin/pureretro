@@ -60,4 +60,32 @@ struct retro_hw_render_interface_vulkan
     retro_vulkan_set_signal_semaphore_t set_signal_semaphore;
 };
 
+struct retro_vulkan_context
+{
+    VkPhysicalDevice gpu;
+    VkDevice device;
+    VkQueue queue;
+    uint32_t queue_family_index;
+    VkQueue presentation_queue;
+    uint32_t presentation_queue_family_index;
+};
+
+struct retro_hw_render_context_negotiation_interface_vulkan
+{
+    enum retro_hw_render_interface_type interface_type;
+    unsigned interface_version;
+    const VkApplicationInfo *(*get_application_info)(void);
+    bool (*create_device)(struct retro_vulkan_context *context,
+                          VkInstance instance,
+                          VkPhysicalDevice gpu,
+                          VkSurfaceKHR surface,
+                          PFN_vkGetInstanceProcAddr get_instance_proc_addr,
+                          const char **required_device_extensions,
+                          unsigned num_required_device_extensions,
+                          const char **required_device_layers,
+                          unsigned num_required_device_layers,
+                          const VkPhysicalDeviceFeatures *required_features);
+    void (*destroy_device)(void);
+};
+
 #endif

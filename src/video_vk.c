@@ -818,6 +818,40 @@ bool video_vk_resize(struct video_vk_context *ctx, SDL_Window *window)
     return vk_swapchain_create(ctx, window);
 }
 
+bool video_vk_negotiate_device(struct video_vk_context *ctx,
+                               const struct retro_hw_render_context_negotiation_interface *iface)
+{
+    if (!ctx || !iface)
+        return false;
+
+    if (iface->interface_type != RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN)
+        return false;
+
+    const struct retro_hw_render_context_negotiation_interface_vulkan *vk_iface =
+        (const struct retro_hw_render_context_negotiation_interface_vulkan *)iface;
+
+    if (!vk_iface->create_device)
+        return false;
+
+    struct retro_vulkan_context retro_ctx;
+    memset(&retro_ctx, 0, sizeof(retro_ctx));
+
+    bool ok = vk_iface->create_device(&retro_ctx,
+                                       ctx->instance,
+                                       ctx->physical_device,
+                                       ctx->surface,
+                                       ctx->get_instance_proc_addr,
+                                       NULL, 0, NULL, 0, NULL);
+    if (!ok) {
+        fprintf(stderr, "video_vk_negotiate_device: create_device failed\n");
+        return false;
+    }
+
+    fprintf(stderr, "video_vk_negotiate_device: create_device succeeded, device=%p, queue=%p\n",
+            (void *)retro_ctx.device, (void *)retro_ctx.queue);
+    return true;
+}
+
 #else /* PURERETRO_VULKAN_ENABLED */
 
 bool video_vk_init(SDL_Window *window, struct retro_hw_render_callback *hw,

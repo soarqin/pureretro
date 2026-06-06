@@ -281,3 +281,18 @@ retro_proc_address_t video_get_proc_address(const char *sym)
 
     return NULL;
 }
+
+bool video_negotiate_hw_context(const struct retro_hw_render_context_negotiation_interface *iface)
+{
+    struct video_state *v = &g_frontend.video;
+
+    if (!iface)
+        return false;
+
+#ifdef PURERETRO_VULKAN_ENABLED
+    if (v->renderer == VIDEO_RENDERER_VULKAN && v->vk)
+        return video_vk_negotiate_device(v->vk, iface);
+#endif
+
+    return false;
+}

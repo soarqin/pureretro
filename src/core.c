@@ -562,7 +562,8 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         return false;
 
     case 43: /* SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE (base value) */
-        return false;
+        return video_negotiate_hw_context(
+            (const struct retro_hw_render_context_negotiation_interface *)data);
 
 #ifdef PURERETRO_VULKAN_ENABLED
     case 41: /* GET_HW_RENDER_INTERFACE (base value, see cmd &= ~EXPERIMENTAL above) */

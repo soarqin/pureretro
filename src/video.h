@@ -44,6 +44,10 @@ uintptr_t video_get_current_framebuffer(void);
  * Valid only when hw_render is active. */
 retro_proc_address_t video_get_proc_address(const char *sym);
 
+/* Negotiate hardware context creation with the core.
+ * Called when the core sets RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE. */
+bool video_negotiate_hw_context(const struct retro_hw_render_context_negotiation_interface *iface);
+
 #ifdef __cplusplus
 }
 #endif
