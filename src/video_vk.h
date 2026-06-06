@@ -77,7 +77,7 @@ bool video_vk_init(SDL_Window *window, struct retro_hw_render_callback *hw,
 void video_vk_destroy(struct video_vk_context *ctx);
 
 /* Present a hardware-rendered frame. */
-void video_vk_present(struct video_vk_context *ctx);
+void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned height);
 
 /* Resolve a Vulkan symbol. */
 retro_proc_address_t video_vk_get_proc_address(struct video_vk_context *ctx,

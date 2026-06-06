@@ -593,7 +593,7 @@ void video_vk_destroy(struct video_vk_context *ctx)
     free(ctx);
 }
 
-void video_vk_present(struct video_vk_context *ctx)
+void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned height)
 {
     if (!ctx || !ctx->has_pending_image)
         return;
@@ -670,11 +670,27 @@ void video_vk_present(struct video_vk_context *ctx)
                          0, NULL,
                          1, &barrier);
 
-    /* Compute blit region (stretch to fill) */
-    int32_t src_width = (int32_t)g_av_info.geometry.max_width;
-    int32_t src_height = (int32_t)g_av_info.geometry.max_height;
+    /* Compute blit region preserving aspect ratio */
+    int32_t src_width = (int32_t)width;
+    int32_t src_height = (int32_t)height;
     if (src_width == 0) src_width = (int32_t)ctx->swapchain_extent.width;
     if (src_height == 0) src_height = (int32_t)ctx->swapchain_extent.height;
+
+    int32_t dst_w, dst_h, dst_x, dst_y;
+    float src_aspect = (float)src_width / (float)src_height;
+    float dst_aspect = (float)ctx->swapchain_extent.width / (float)ctx->swapchain_extent.height;
+
+    if (src_aspect > dst_aspect) {
+        dst_w = (int32_t)ctx->swapchain_extent.width;
+        dst_h = (int32_t)((float)ctx->swapchain_extent.width / src_aspect);
+        dst_x = 0;
+        dst_y = ((int32_t)ctx->swapchain_extent.height - dst_h) / 2;
+    } else {
+        dst_h = (int32_t)ctx->swapchain_extent.height;
+        dst_w = (int32_t)((float)ctx->swapchain_extent.height * src_aspect);
+        dst_x = ((int32_t)ctx->swapchain_extent.width - dst_w) / 2;
+        dst_y = 0;
+    }
 
     VkImageBlit blit = {0};
     blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -691,11 +707,11 @@ void video_vk_present(struct video_vk_context *ctx)
     blit.dstSubresource.mipLevel = 0;
     blit.dstSubresource.baseArrayLayer = 0;
     blit.dstSubresource.layerCount = 1;
-    blit.dstOffsets[0].x = 0;
-    blit.dstOffsets[0].y = 0;
+    blit.dstOffsets[0].x = dst_x;
+    blit.dstOffsets[0].y = dst_y;
     blit.dstOffsets[0].z = 0;
-    blit.dstOffsets[1].x = (int32_t)ctx->swapchain_extent.width;
-    blit.dstOffsets[1].y = (int32_t)ctx->swapchain_extent.height;
+    blit.dstOffsets[1].x = dst_x + dst_w;
+    blit.dstOffsets[1].y = dst_y + dst_h;
     blit.dstOffsets[1].z = 1;
 
     vkCmdBlitImage(cmd,

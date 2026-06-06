@@ -286,8 +286,12 @@ int main(int argc, char *argv[])
 
     run_loop();
 
-    frontend_shutdown();
+    /* Unload the core before shutting down frontend resources.
+     * For Vulkan, the core may have background threads (e.g. PPSSPP's
+     * VulkanRenderManager) that share the same VkInstance. We must let
+     * the core stop those threads before we destroy the instance. */
     core_unload();
+    frontend_shutdown();
 
     return EXIT_SUCCESS;
 }

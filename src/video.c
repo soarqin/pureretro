@@ -100,7 +100,7 @@ void video_present(const void *data, unsigned width, unsigned height, size_t pit
 #ifdef PURERETRO_VULKAN_ENABLED
         case VIDEO_RENDERER_VULKAN:
             if (v->vk)
-                video_vk_present(v->vk);
+                video_vk_present(v->vk, width, height);
             break;
 #endif
         default:
