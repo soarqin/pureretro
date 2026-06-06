@@ -225,6 +225,12 @@ static bool create_command_pool(struct video_vk_context *ctx)
 
 static bool vk_swapchain_create(struct video_vk_context *ctx, SDL_Window *window)
 {
+    /* Failure contract: on early-return false, partially-created Vulkan
+     * objects remain owned by ctx (with NULL handles where not yet
+     * populated thanks to calloc). The caller must eventually run
+     * video_vk_destroy() to clean them up. This keeps each error branch
+     * one line instead of duplicating a cleanup sequence. */
+
     /* Free old GPU resources and arrays from any previous swapchain */
     if (ctx->swapchain_views) {
         for (uint32_t i = 0; i < ctx->image_count; ++i) {
@@ -452,7 +458,12 @@ static uint32_t vk_get_sync_index(void *handle)
 static uint32_t vk_get_sync_index_mask(void *handle)
 {
     struct video_vk_context *ctx = (struct video_vk_context *)handle;
-    return (1u << ctx->image_count) - 1u;
+    uint32_t n = ctx->image_count;
+    /* Guard against UB: shifting a uint32_t by 32 is undefined. The libretro
+     * interface uses a 32-bit mask, so cap at 32 swapchain images. */
+    if (n >= 32)
+        return UINT32_MAX;
+    return (1u << n) - 1u;
 }
 
 static void vk_lock_queue(void *handle)
@@ -552,39 +563,42 @@ void video_vk_destroy(struct video_vk_context *ctx)
     if (!ctx)
         return;
 
-    if (ctx->device != VK_NULL_HANDLE)
+    /* Tear down everything that needs the device first, all inside one
+     * guarded block. Anything destroyed outside this block must not touch
+     * ctx->device. */
+    if (ctx->device != VK_NULL_HANDLE) {
         vkDeviceWaitIdle(ctx->device);
 
-    for (int i = 0; i < VK_MAX_FRAMES_IN_FLIGHT; ++i) {
-        if (ctx->image_available[i] != VK_NULL_HANDLE)
-            vkDestroySemaphore(ctx->device, ctx->image_available[i], NULL);
-        if (ctx->render_finished[i] != VK_NULL_HANDLE)
-            vkDestroySemaphore(ctx->device, ctx->render_finished[i], NULL);
-        if (ctx->frame_fence[i] != VK_NULL_HANDLE)
-            vkDestroyFence(ctx->device, ctx->frame_fence[i], NULL);
-    }
-
-    if (ctx->cmd_pool != VK_NULL_HANDLE)
-        vkDestroyCommandPool(ctx->device, ctx->cmd_pool, NULL);
-
-    if (ctx->swapchain_views) {
-        for (uint32_t i = 0; i < ctx->image_count; ++i) {
-            if (ctx->swapchain_views[i] != VK_NULL_HANDLE)
-                vkDestroyImageView(ctx->device, ctx->swapchain_views[i], NULL);
+        for (int i = 0; i < VK_MAX_FRAMES_IN_FLIGHT; ++i) {
+            if (ctx->image_available[i] != VK_NULL_HANDLE)
+                vkDestroySemaphore(ctx->device, ctx->image_available[i], NULL);
+            if (ctx->render_finished[i] != VK_NULL_HANDLE)
+                vkDestroySemaphore(ctx->device, ctx->render_finished[i], NULL);
+            if (ctx->frame_fence[i] != VK_NULL_HANDLE)
+                vkDestroyFence(ctx->device, ctx->frame_fence[i], NULL);
         }
+
+        if (ctx->cmd_pool != VK_NULL_HANDLE)
+            vkDestroyCommandPool(ctx->device, ctx->cmd_pool, NULL);
+
+        if (ctx->swapchain_views) {
+            for (uint32_t i = 0; i < ctx->image_count; ++i) {
+                if (ctx->swapchain_views[i] != VK_NULL_HANDLE)
+                    vkDestroyImageView(ctx->device, ctx->swapchain_views[i], NULL);
+            }
+        }
+
+        if (ctx->swapchain != VK_NULL_HANDLE)
+            vkDestroySwapchainKHR(ctx->device, ctx->swapchain, NULL);
+
+        vkDestroyDevice(ctx->device, NULL);
     }
 
-    if (ctx->swapchain != VK_NULL_HANDLE)
-        vkDestroySwapchainKHR(ctx->device, ctx->swapchain, NULL);
-
-    if (ctx->device != VK_NULL_HANDLE)
-        vkDestroyDevice(ctx->device, NULL);
-
-    if (ctx->surface != VK_NULL_HANDLE)
-        vkDestroySurfaceKHR(ctx->instance, ctx->surface, NULL);
-
-    if (ctx->instance != VK_NULL_HANDLE)
+    if (ctx->instance != VK_NULL_HANDLE) {
+        if (ctx->surface != VK_NULL_HANDLE)
+            vkDestroySurfaceKHR(ctx->instance, ctx->surface, NULL);
         vkDestroyInstance(ctx->instance, NULL);
+    }
 
     free(ctx->swapchain_images);
     free(ctx->swapchain_views);
@@ -627,7 +641,13 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
     if (!vk_check(vkBeginCommandBuffer(cmd, &cbbi), "vkBeginCommandBuffer"))
         return;
 
-    /* The core image is available via the VkImageViewCreateInfo stored in retro_vulkan_image */
+    /* The core image is available via the VkImageViewCreateInfo stored in retro_vulkan_image.
+     *
+     * Layout contract (from libretro_vulkan.h): the core must place the
+     * source image in `pending_image.image_layout` before signalling
+     * set_image(). Passing that layout into the barrier as `oldLayout`
+     * matches the Vulkan spec; mismatched layouts produce undefined
+     * results, which we treat as the core's responsibility. */
     VkImage core_image = ctx->pending_image.create_info.image;
     VkImageLayout core_layout = ctx->pending_image.image_layout;
 

@@ -15,6 +15,11 @@ bool audio_init(double sample_rate)
 {
     SDL_AudioSpec spec;
 
+    if (!(sample_rate > 0.0)) {
+        fprintf(stderr, "audio_init: invalid sample rate %f\n", sample_rate);
+        return false;
+    }
+
     memset(&spec, 0, sizeof(spec));
     spec.freq = (int)sample_rate;
     spec.format = SDL_AUDIO_S16;
@@ -47,8 +52,14 @@ void audio_shutdown(void)
 
 size_t audio_push(const int16_t *data, size_t frames)
 {
-    if (!g_frontend.audio_stream || !data)
+    if (!data)
         return 0;
+
+    /* When audio is disabled (e.g. --no-audio), pretend we consumed every
+     * frame. Returning 0 makes libretro cores treat the sink as a stalled
+     * buffer and busy-loop trying to push the same samples again. */
+    if (!g_frontend.audio_stream)
+        return frames;
 
     /* Keep the SDL audio queue bounded to avoid multi-second latency.
      *

@@ -138,6 +138,53 @@ static bool parse_args(int argc, char *argv[])
     return true;
 }
 
+/* Compute and create g_frontend.system_directory. Best-effort: on failure
+ * the field is left NULL and the program continues (cores that need a
+ * system directory will simply error out). */
+static void set_system_directory(void)
+{
+    if (g_frontend.portable) {
+        /* Portable mode: keep all data alongside the binary's working
+         * directory. The system directory is "<cwd>/system". */
+        char *cwd = SDL_GetCurrentDirectory();
+        if (!cwd)
+            return;
+
+        size_t cwd_len = strlen(cwd);
+        /* Strip a trailing separator (e.g., "/" on Unix roots). */
+        while (cwd_len > 1 &&
+               (cwd[cwd_len - 1] == '/' || cwd[cwd_len - 1] == '\\'))
+            cwd_len--;
+
+        size_t total = cwd_len + 1 + strlen("system") + 1;
+        g_frontend.system_directory = malloc(total);
+        if (g_frontend.system_directory) {
+            snprintf(g_frontend.system_directory, total,
+                     "%.*s/system", (int)cwd_len, cwd);
+            fprintf(stderr, "System directory (portable): %s\n",
+                    g_frontend.system_directory);
+            SDL_CreateDirectory(g_frontend.system_directory);
+        }
+        SDL_free(cwd);
+        return;
+    }
+
+    /* Default: SDL_GetPrefPath returns a platform-appropriate user data
+     * directory, already terminated with a separator. */
+    const char *pref = SDL_GetPrefPath("pureretro", "system");
+    if (!pref)
+        return;
+
+    size_t len = strlen(pref);
+    g_frontend.system_directory = malloc(len + 1);
+    if (g_frontend.system_directory) {
+        memcpy(g_frontend.system_directory, pref, len + 1);
+        fprintf(stderr, "System directory: %s\n", g_frontend.system_directory);
+        SDL_CreateDirectory(g_frontend.system_directory);
+    }
+    SDL_free((void *)pref);
+}
+
 static bool frontend_init(void)
 {
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS)) {
@@ -149,47 +196,7 @@ static bool frontend_init(void)
 
     /* Set up the system directory for firmware/BIOS files.
      * Cores like Beetle PSX HW look here for scph5500.bin etc. */
-    if (g_frontend.portable) {
-        /* Portable mode: keep all data alongside the binary's working
-         * directory. The system directory is "<cwd>/system". */
-        char *cwd = SDL_GetCurrentDirectory();
-        if (cwd) {
-            size_t cwd_len = strlen(cwd);
-            /* Strip a trailing separator (e.g., "/" on Unix roots). */
-            while (cwd_len > 1 &&
-                   (cwd[cwd_len - 1] == '/' || cwd[cwd_len - 1] == '\\'))
-                cwd_len--;
-            size_t total = cwd_len + 1 + strlen("system") + 1;
-            g_frontend.system_directory = malloc(total);
-            if (g_frontend.system_directory) {
-                snprintf(g_frontend.system_directory, total,
-                         "%.*s/system", (int)cwd_len, cwd);
-                fprintf(stderr, "System directory (portable): %s\n",
-                        g_frontend.system_directory);
-                /* Create the directory if it doesn't exist (best-effort) */
-                SDL_CreateDirectory(g_frontend.system_directory);
-            }
-            SDL_free(cwd);
-        }
-    } else {
-        /* Default: SDL_GetPrefPath returns a platform-appropriate user
-         * data directory. */
-        const char *pref = SDL_GetPrefPath("pureretro", "system");
-        if (pref) {
-            /* SDL_GetPrefPath already appends the app name ("system") and a
-             * trailing separator. Copy it into our own buffer. */
-            size_t len = strlen(pref);
-            g_frontend.system_directory = malloc(len + 1);
-            if (g_frontend.system_directory) {
-                memcpy(g_frontend.system_directory, pref, len + 1);
-                fprintf(stderr, "System directory: %s\n",
-                        g_frontend.system_directory);
-                /* Create the directory if it doesn't exist (best-effort) */
-                SDL_CreateDirectory(g_frontend.system_directory);
-            }
-            SDL_free((void *)pref);
-        }
-    }
+    set_system_directory();
 
     if (!video_init("PureRetro", 640, 480)) {
         fprintf(stderr, "Failed to initialize video\n");
@@ -215,13 +222,14 @@ static void frontend_shutdown(void)
 static void run_loop(void)
 {
     SDL_Event event;
-    Uint64 target_frame_ns = 0;
-
-    if (g_av_info.timing.fps > 0.0)
-        target_frame_ns = (Uint64)(1000000000.0 / g_av_info.timing.fps);
 
     while (g_frontend.running) {
         Uint64 frame_start = SDL_GetTicksNS();
+
+        /* Recompute the target frame budget every iteration so a core that
+         * changes its AV info via SET_SYSTEM_AV_INFO mid-run is honoured. */
+        double fps = g_av_info.timing.fps;
+        Uint64 target_frame_ns = (fps > 0.0) ? (Uint64)(1000000000.0 / fps) : 0;
 
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
@@ -287,8 +295,11 @@ int main(int argc, char *argv[])
     if (!core_init(g_frontend.content_path)) {
         fprintf(stderr, "Failed to initialize core\n");
         free(opt_path);
-        frontend_shutdown();
+        /* Tear the core down first (stops its background threads, releases
+         * its own resources) before destroying the SDL / video subsystems
+         * the core may still be holding pointers into. */
         core_unload();
+        frontend_shutdown();
         return EXIT_FAILURE;
     }
 
@@ -299,14 +310,16 @@ int main(int argc, char *argv[])
         g_frontend.video.window = SDL_CreateWindow("PureRetro", 640, 480, 0);
         if (!g_frontend.video.window) {
             fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
-            frontend_shutdown();
+            free(opt_path);
             core_unload();
+            frontend_shutdown();
             return EXIT_FAILURE;
         }
         if (!video_sw_init(g_frontend.video.window, &g_frontend.video.sw)) {
             fprintf(stderr, "Failed to initialize software renderer\n");
-            frontend_shutdown();
+            free(opt_path);
             core_unload();
+            frontend_shutdown();
             return EXIT_FAILURE;
         }
         fprintf(stderr, "Created window for software renderer\n");

@@ -147,15 +147,9 @@ bool video_set_hw_render(struct retro_hw_render_callback *hw)
     fprintf(stderr, "Core requested HW context: %s\n", hw_context_name(hw->context_type));
     g_frontend.hw_render_requested = true;
 
-    /* Destroy the software renderer before switching to HW. */
-    if (v->sw) {
-        video_sw_destroy(v->sw);
-        v->sw = NULL;
-    }
-
-    switch (hw->context_type) {
-    case RETRO_HW_CONTEXT_NONE:
-        /* Core changed its mind; stay software. */
+    /* CONTEXT_NONE means "stay on the software path". Handle it first so we
+     * don't tear down and immediately recreate the existing sw renderer. */
+    if (hw->context_type == RETRO_HW_CONTEXT_NONE) {
         v->hw_render_enabled = false;
         v->renderer = VIDEO_RENDERER_SW;
         if (!v->window) {
@@ -163,9 +157,21 @@ bool video_set_hw_render(struct retro_hw_render_callback *hw)
             if (!v->window)
                 return false;
         }
-        if (!video_sw_init(v->window, &v->sw))
+        if (!v->sw && !video_sw_init(v->window, &v->sw))
             return false;
         fprintf(stderr, "Active renderer: sw (software)\n");
+        return true;
+    }
+
+    /* Switching to a hardware backend: drop the software renderer first. */
+    if (v->sw) {
+        video_sw_destroy(v->sw);
+        v->sw = NULL;
+    }
+
+    switch (hw->context_type) {
+    case RETRO_HW_CONTEXT_NONE:
+        /* Already handled above. */
         return true;
 
     case RETRO_HW_CONTEXT_OPENGL:

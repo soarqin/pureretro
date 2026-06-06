@@ -114,11 +114,18 @@ static const char *variables_find(const struct retro_variable *vars, size_t coun
 
 /* Parse the default value from a retro_variable value string.
  * Format: "description; default|option1|option2|..."
+ *
  * Writes the default into out (a caller-supplied buffer of out_len bytes)
- * and returns true on success. Returns false if no default could be parsed. */
+ * and returns true on success. Returns false if no default could be parsed.
+ *
+ * NOTE: Even on a false return, out[0] is set to '\0' (when out_len > 0) so
+ * callers can safely read out without checking the return code first. */
 static bool parse_default_value(const char *raw, char *out, size_t out_len)
 {
-    if (!raw || !out || out_len == 0)
+    if (!out || out_len == 0)
+        return false;
+    out[0] = '\0';
+    if (!raw)
         return false;
 
     const char *def = strchr(raw, ';');
@@ -432,7 +439,11 @@ static bool load_file(const char *path, void **out_data, size_t *out_size)
     }
 
     size = ftell(fp);
-    if (size < 0) {
+    if (size <= 0) {
+        if (size < 0)
+            fprintf(stderr, "ftell failed for: %s\n", path);
+        else
+            fprintf(stderr, "Refusing to load empty file: %s\n", path);
         fclose(fp);
         return false;
     }
@@ -483,6 +494,9 @@ bool core_load(const char *path)
         SDL_FunctionPointer _fp = SDL_LoadFunction(g_core_handle, #sym); \
         if (!_fp) {                                                       \
             fprintf(stderr, "Failed to load symbol: %s\n", #sym);        \
+            SDL_UnloadObject(g_core_handle);                              \
+            g_core_handle = NULL;                                         \
+            memset(&g_core, 0, sizeof(g_core));                           \
             return false;                                                 \
         }                                                                 \
         memcpy(&g_core.sym, &_fp, sizeof(g_core.sym));                   \
@@ -599,6 +613,13 @@ bool core_init(const char *content_path)
         fprintf(stderr, "Calling retro_load_game...\n");
         if (!g_core.retro_load_game(&game)) {
             fprintf(stderr, "retro_load_game failed (core rejected the content)\n");
+            /* Release the ROM buffer immediately so a caller that bails out
+             * without invoking core_unload does not leak it. core_unload()
+             * also handles this case, so a double-free is avoided by
+             * nulling the pointers below. */
+            free(g_frontend.rom_data);
+            g_frontend.rom_data = NULL;
+            g_frontend.rom_size = 0;
             return false;
         }
         fprintf(stderr, "retro_load_game succeeded\n");
@@ -637,13 +658,23 @@ void core_run(void)
 /* Callbacks exposed to the core                                      */
 /* ------------------------------------------------------------------ */
 
+/* Helper: returns true if data is non-NULL; otherwise logs and returns false. */
+static bool require_data(unsigned cmd, const void *data)
+{
+    if (!data) {
+        fprintf(stderr, "core_environment: NULL data for cmd %u (0x%x)\n", cmd, cmd);
+        return false;
+    }
+    return true;
+}
+
 bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
 {
-    (void)data;
-
     /* Some cores (e.g. Beetle PSX HW) call callbacks with the experimental
      * flag OR'd in. Since we support all the experimental features the
-     * project targets, strip the flag and process the base callback. */
+     * project targets, strip the flag and process the base callback. The
+     * raw value is kept for diagnostics. */
+    const unsigned raw_cmd = cmd;
     cmd &= ~RETRO_ENVIRONMENT_EXPERIMENTAL;
 
     switch (cmd) {
@@ -653,14 +684,20 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
 
     case RETRO_ENVIRONMENT_GET_OVERSCAN:
         /* Default: no overscan */
+        if (!require_data(cmd, data))
+            return false;
         *(bool *)data = false;
         return true;
 
     case RETRO_ENVIRONMENT_GET_CAN_DUPE:
+        if (!require_data(cmd, data))
+            return false;
         *(bool *)data = true;
         return true;
 
     case RETRO_ENVIRONMENT_SET_MESSAGE: {
+        if (!require_data(cmd, data))
+            return false;
         const struct retro_message *msg = (const struct retro_message *)data;
         fprintf(stderr, "[CORE] %s\n", msg->msg);
         return true;
@@ -674,12 +711,16 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         return false;
 
     case RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY:
+        if (!require_data(cmd, data))
+            return false;
         *(const char **)data = g_frontend.system_directory;
         fprintf(stderr, "Core queried system directory: %s\n",
                 g_frontend.system_directory ? g_frontend.system_directory : "(null)");
         return true;
 
     case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT: {
+        if (!require_data(cmd, data))
+            return false;
         enum retro_pixel_format fmt = *(const enum retro_pixel_format *)data;
         const char *fmt_name = "unknown";
         switch (fmt) {
@@ -706,9 +747,13 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         return false;
 
     case RETRO_ENVIRONMENT_SET_HW_RENDER:
+        if (!require_data(cmd, data))
+            return false;
         return video_set_hw_render((struct retro_hw_render_callback *)data);
 
     case RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER: {
+        if (!require_data(cmd, data))
+            return false;
         int *preferred = (int *)data;
         bool result;
         switch (g_frontend.preferred_renderer) {
@@ -724,7 +769,11 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
     }
 
     case RETRO_ENVIRONMENT_GET_VARIABLE: {
+        if (!require_data(cmd, data))
+            return false;
         struct retro_variable *var = (struct retro_variable *)data;
+        if (!var->key)
+            return false;
         const char *override = variables_find(g_frontend.cli_overrides,
                                                g_frontend.cli_override_count,
                                                var->key);
@@ -808,6 +857,8 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
     }
 
     case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE:
+        if (!require_data(cmd, data))
+            return false;
         *(bool *)data = false;
         return true;
 
@@ -815,6 +866,8 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         return true;
 
     case RETRO_ENVIRONMENT_GET_LIBRETRO_PATH:
+        if (!require_data(cmd, data))
+            return false;
         *(const char **)data = g_frontend.core_path;
         return true;
 
@@ -828,6 +881,8 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         return false;
 
     case RETRO_ENVIRONMENT_GET_INPUT_DEVICE_CAPABILITIES:
+        if (!require_data(cmd, data))
+            return false;
         *(uint64_t *)data = (1 << RETRO_DEVICE_JOYPAD);
         return true;
 
@@ -838,6 +893,8 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         return false;
 
     case RETRO_ENVIRONMENT_GET_LOG_INTERFACE: {
+        if (!require_data(cmd, data))
+            return false;
         struct retro_log_callback *cb = (struct retro_log_callback *)data;
         cb->log = log_stderr;
         return true;
@@ -850,15 +907,21 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         return false;
 
     case RETRO_ENVIRONMENT_GET_CORE_ASSETS_DIRECTORY:
+        if (!require_data(cmd, data))
+            return false;
         *(const char **)data = NULL;
         return true;
 
     case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY:
+        if (!require_data(cmd, data))
+            return false;
         *(const char **)data = NULL;
         fprintf(stderr, "Core queried save directory: (null - core will use system directory)\n");
         return true;
 
     case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO: {
+        if (!require_data(cmd, data))
+            return false;
         const struct retro_system_av_info *av =
             (const struct retro_system_av_info *)data;
         g_av_info = *av;
@@ -870,10 +933,23 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
                             av->geometry.max_width,
                             av->geometry.max_height);
         }
+#ifdef PURERETRO_VULKAN_ENABLED
+        if (g_frontend.video.hw_render_enabled &&
+            g_frontend.video.renderer == VIDEO_RENDERER_VULKAN &&
+            g_frontend.video.vk &&
+            g_frontend.video.window) {
+            /* The Vulkan swapchain follows the window/surface size rather
+             * than the AV info geometry, but recreate it so anything that
+             * caches dimensions sees a fresh swapchain. */
+            video_vk_resize(g_frontend.video.vk, g_frontend.video.window);
+        }
+#endif
         return true;
     }
 
     case RETRO_ENVIRONMENT_GET_LANGUAGE:
+        if (!require_data(cmd, data))
+            return false;
         *(enum retro_language *)data = RETRO_LANGUAGE_ENGLISH;
         return true;
 
@@ -883,12 +959,16 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
     case RETRO_ENVIRONMENT_SET_VARIABLE:
         return false;
 
-    case 43: /* SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE (base value) */
+    case RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE & ~RETRO_ENVIRONMENT_EXPERIMENTAL:
+        if (!require_data(cmd, data))
+            return false;
         return video_negotiate_hw_context(
             (const struct retro_hw_render_context_negotiation_interface *)data);
 
 #ifdef PURERETRO_VULKAN_ENABLED
-    case 41: /* GET_HW_RENDER_INTERFACE (base value, see cmd &= ~EXPERIMENTAL above) */
+    case RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE & ~RETRO_ENVIRONMENT_EXPERIMENTAL:
+        if (!require_data(cmd, data))
+            return false;
         fprintf(stderr, "GET_HW_RENDER_INTERFACE: renderer=%d vk=%p\n",
                 (int)g_frontend.video.renderer, (void *)g_frontend.video.vk);
         if (g_frontend.video.renderer != VIDEO_RENDERER_VULKAN || !g_frontend.video.vk)
@@ -902,13 +982,13 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
                 (void *)&g_frontend.video.vk->hw_if);
         return true;
 #else
-    case 41: /* GET_HW_RENDER_INTERFACE (base value) */
+    case RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE & ~RETRO_ENVIRONMENT_EXPERIMENTAL:
         fprintf(stderr, "GET_HW_RENDER_INTERFACE: PURERETRO_VULKAN_ENABLED not defined\n");
         return false;
 #endif
 
     default:
-        fprintf(stderr, "Unhandled cmd: %u (0x%x)\n", cmd, cmd);
+        fprintf(stderr, "Unhandled cmd: %u (0x%x, raw 0x%x)\n", cmd, cmd, raw_cmd);
         return false;
     }
 }
