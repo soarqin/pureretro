@@ -49,6 +49,7 @@ set(PURERETRO_HEADERS
     src/frontend.h
     src/core.h
     src/core_variables.h
+    src/core_variables_internal.h
     src/core_variables_parse.h
     src/video.h
     src/video_sw.h

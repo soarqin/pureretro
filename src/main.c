@@ -11,6 +11,7 @@
 #include <SDL3/SDL.h>
 #include "frontend.h"
 #include "core.h"
+#include "core_variables.h"
 #include "video.h"
 #include "video_sw.h"
 #include "video_gl.h"

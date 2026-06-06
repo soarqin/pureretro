@@ -12,6 +12,7 @@
 #include <SDL3/SDL.h>
 #include "core.h"
 #include "core_variables_parse.h"
+#include "core_variables_internal.h"
 #include "frontend.h"
 #include "video.h"
 #include "video_gl.h"
@@ -28,7 +29,7 @@ static SDL_SharedObject *g_core_handle = NULL;
 /* Variable management (SET_VARIABLES / GET_VARIABLE)                 */
 /* ------------------------------------------------------------------ */
 
-static void variables_free(struct retro_variable **vars, size_t *count)
+void variables_free(struct retro_variable **vars, size_t *count)
 {
     if (!*vars)
         return;
@@ -41,8 +42,8 @@ static void variables_free(struct retro_variable **vars, size_t *count)
     *count = 0;
 }
 
-static bool variable_add(struct retro_variable **vars, size_t *count,
-                         size_t *capacity, const char *key, const char *value)
+bool variable_add(struct retro_variable **vars, size_t *count,
+                  size_t *capacity, const char *key, const char *value)
 {
     /* Check if key already exists: update in-place */
     for (size_t i = 0; i < *count; ++i) {
@@ -93,14 +94,14 @@ static int variable_cmp(const void *a, const void *b)
     return strcmp(va->key, vb->key);
 }
 
-static void variables_sort(struct retro_variable *vars, size_t count)
+void variables_sort(struct retro_variable *vars, size_t count)
 {
     if (count > 1)
         qsort(vars, count, sizeof(struct retro_variable), variable_cmp);
 }
 
-static const char *variables_find(const struct retro_variable *vars, size_t count,
-                                  const char *key)
+const char *variables_find(const struct retro_variable *vars, size_t count,
+                           const char *key)
 {
     if (!vars || count == 0)
         return NULL;
@@ -111,249 +112,6 @@ static const char *variables_find(const struct retro_variable *vars, size_t coun
                                                 sizeof(struct retro_variable),
                                                 variable_cmp);
     return found ? found->value : NULL;
-}
-
-/* ------------------------------------------------------------------ */
-/* Variable persistence (per-core .opt file)                          */
-/* ------------------------------------------------------------------ */
-
-/* Extract the core's short name from a path like ".../nestopia_libretro.so".
- * Returns a heap-allocated string with directory and any "_libretro.{so,dll,dylib}"
- * suffix stripped. Caller frees. */
-static char *core_basename(const char *core_path)
-{
-    if (!core_path)
-        return NULL;
-
-    /* Find the last path separator */
-    const char *base = core_path;
-    for (const char *p = core_path; *p; ++p) {
-        if (*p == '/' || *p == '\\')
-            base = p + 1;
-    }
-
-    size_t len = strlen(base);
-
-    /* Strip known shared-object extensions */
-    static const char *exts[] = { ".so", ".dll", ".dylib", NULL };
-    for (size_t i = 0; exts[i]; ++i) {
-        size_t el = strlen(exts[i]);
-        if (len > el && strcmp(base + len - el, exts[i]) == 0) {
-            len -= el;
-            break;
-        }
-    }
-
-    /* Strip the "_libretro" suffix if present */
-    static const char libretro_suffix[] = "_libretro";
-    size_t sl = sizeof(libretro_suffix) - 1;
-    if (len > sl && strncmp(base + len - sl, libretro_suffix, sl) == 0)
-        len -= sl;
-
-    char *out = malloc(len + 1);
-    if (!out)
-        return NULL;
-    memcpy(out, base, len);
-    out[len] = '\0';
-    return out;
-}
-
-char *core_variables_path(const char *core_path, const char *base_dir)
-{
-    if (!base_dir)
-        return NULL;
-
-    char *name = core_basename(core_path);
-    if (!name)
-        return NULL;
-
-    size_t bl = strlen(base_dir);
-    /* base_dir may or may not end with a separator */
-    bool need_sep = bl > 0 && base_dir[bl - 1] != '/' && base_dir[bl - 1] != '\\';
-    size_t total = bl + (need_sep ? 1 : 0) + strlen(name) + 4 + 1;
-    char *out = malloc(total);
-    if (!out) {
-        free(name);
-        return NULL;
-    }
-    snprintf(out, total, "%s%s%s.opt", base_dir, need_sep ? "/" : "", name);
-    free(name);
-    return out;
-}
-
-bool core_variables_load(const char *path)
-{
-    if (!path)
-        return false;
-
-    FILE *fp = fopen(path, "r");
-    if (!fp) {
-        /* Missing file is not an error */
-        return true;
-    }
-
-    char line[1024];
-    size_t loaded = 0;
-    while (fgets(line, sizeof(line), fp)) {
-        /* Strip trailing newline / CR */
-        size_t len = strlen(line);
-        while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
-            line[--len] = '\0';
-
-        /* Skip blank lines and comments */
-        char *p = line;
-        while (*p == ' ' || *p == '\t')
-            ++p;
-        if (*p == '\0' || *p == '#')
-            continue;
-
-        char *eq = strchr(p, '=');
-        if (!eq)
-            continue;
-        *eq = '\0';
-        char *key = p;
-        char *value = eq + 1;
-
-        /* Trim trailing whitespace on the key */
-        size_t kl = strlen(key);
-        while (kl > 0 && (key[kl - 1] == ' ' || key[kl - 1] == '\t'))
-            key[--kl] = '\0';
-        if (kl == 0)
-            continue;
-
-        if (variable_add(&g_frontend.disk_overrides,
-                         &g_frontend.disk_override_count,
-                         &g_frontend.disk_override_capacity,
-                         key, value)) {
-            loaded++;
-        }
-    }
-    fclose(fp);
-
-    variables_sort(g_frontend.disk_overrides, g_frontend.disk_override_count);
-    fprintf(stderr, "Loaded %zu variable override(s) from %s\n", loaded, path);
-    return true;
-}
-
-/* Write the choices list portion of a raw variable value string as a
- * single comment line: "# Choices: a | b | c". Choices are pipe-separated
- * in the raw value; we normalize separators with " | " for readability. */
-static void write_choices_comment(FILE *fp, const char *raw)
-{
-    const char *p = core_var_choices_begin(raw);
-    if (!p)
-        return;
-
-    fputs("# Choices: ", fp);
-    bool first = true;
-    while (*p) {
-        if (!first)
-            fputs(" | ", fp);
-        first = false;
-        while (*p && *p != '|')
-            fputc(*p++, fp);
-        if (*p == '|')
-            ++p;
-    }
-    fputc('\n', fp);
-}
-
-bool core_variables_save(const char *path)
-{
-    if (!path)
-        return false;
-
-    /* Persist disk_overrides, with rich comments derived from the variables
-     * the core declared this run. CLI overrides are intentionally excluded.
-     *
-     * Layout for each declared variable:
-     *   # <description>
-     *   # Choices: a | b | c
-     *   key=value
-     *
-     * Disk overrides whose keys were not declared by the core this run
-     * (e.g. left over from a previous core version) are written without a
-     * comment block to preserve the user's data. */
-
-    if (g_frontend.disk_override_count == 0 &&
-        g_frontend.variable_count == 0) {
-        /* Nothing to write. Avoid creating an empty file. */
-        return true;
-    }
-
-    FILE *fp = fopen(path, "w");
-    if (!fp) {
-        fprintf(stderr, "Failed to open %s for writing: cannot persist variables\n",
-                path);
-        return false;
-    }
-
-    fputs("# PureRetro core options\n", fp);
-    fputs("# Lines starting with '#' are comments. Edit values after '=' to taste.\n",
-          fp);
-    fputs("# Delete this file to reset all options to their defaults.\n", fp);
-
-    size_t written = 0;
-
-    /* First pass: every variable the core declared, with comment block. */
-    for (size_t i = 0; i < g_frontend.variable_count; ++i) {
-        const char *key = g_frontend.variables[i].key;
-        const char *raw = g_frontend.variables[i].value;
-
-        const char *value = variables_find(g_frontend.disk_overrides,
-                                            g_frontend.disk_override_count,
-                                            key);
-        if (!value) {
-            /* No persisted value (should not happen — SET_VARIABLES seeds
-             * one). Fall back to parsing the default on the fly. */
-            static char def[256];
-            if (core_var_parse_default(raw, def, sizeof(def)))
-                value = def;
-        }
-        if (!value)
-            continue;
-
-        char desc[256];
-        core_var_parse_description(raw, desc, sizeof(desc));
-
-        fputc('\n', fp);
-        if (desc[0])
-            fprintf(fp, "# %s\n", desc);
-        write_choices_comment(fp, raw);
-
-        /* If a CLI --variable override is active for this key, the value
-         * the core actually saw this run differs from what we are about
-         * to persist. Make that explicit so users do not wrongly assume
-         * the CLI flag was saved. */
-        const char *cli = variables_find(g_frontend.cli_overrides,
-                                          g_frontend.cli_override_count,
-                                          key);
-        if (cli)
-            fprintf(fp, "# (CLI override in effect this run: %s)\n", cli);
-
-        fprintf(fp, "%s=%s\n", key, value);
-        written++;
-    }
-
-    /* Second pass: stray disk overrides whose key the core did not declare. */
-    bool stray_header = false;
-    for (size_t i = 0; i < g_frontend.disk_override_count; ++i) {
-        const char *key = g_frontend.disk_overrides[i].key;
-        if (variables_find(g_frontend.variables, g_frontend.variable_count, key))
-            continue;
-
-        if (!stray_header) {
-            fputs("\n# --- Persisted from a previous run; not declared by the "
-                  "current core ---\n", fp);
-            stray_header = true;
-        }
-        fprintf(fp, "%s=%s\n", key, g_frontend.disk_overrides[i].value);
-        written++;
-    }
-
-    fclose(fp);
-    fprintf(stderr, "Saved %zu variable(s) to %s\n", written, path);
-    return true;
 }
 
 /* ------------------------------------------------------------------ */
@@ -499,18 +257,6 @@ void core_unload(void)
     g_frontend.cli_override_capacity = 0;
 
     memset(&g_core, 0, sizeof(g_core));
-}
-
-void core_variable_override(const char *key, const char *value)
-{
-    if (!key || !value)
-        return;
-    if (!variable_add(&g_frontend.cli_overrides, &g_frontend.cli_override_count,
-                      &g_frontend.cli_override_capacity, key, value)) {
-        fprintf(stderr, "Failed to store variable override: %s=%s\n", key, value);
-    } else {
-        fprintf(stderr, "Variable override (CLI): %s=%s\n", key, value);
-    }
 }
 
 bool core_init(const char *content_path)

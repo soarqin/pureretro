@@ -64,6 +64,25 @@ size_t variable_table_count(const struct variable_table *t);
 const struct retro_variable *variable_table_at(
         const struct variable_table *t, size_t i);
 
+/* Override a core option variable (used by --variable CLI flag).
+ * CLI overrides take priority over disk-persisted values and are
+ * never written back to .opt. */
+void core_variable_override(const char *key, const char *value);
+
+/* Compute the per-core options file path, given the core shared
+ * object path and a base directory (typically
+ * g_frontend.system_directory). Returns a heap-allocated string the
+ * caller must free, or NULL on allocation failure / NULL base_dir. */
+char *core_variables_path(const char *core_path, const char *base_dir);
+
+/* Load persisted overrides from path into g_frontend.disk_overrides.
+ * Missing files are not an error. Returns true on success. */
+bool core_variables_load(const char *path);
+
+/* Save the current disk overrides to path. CLI-only overrides are
+ * intentionally excluded. */
+bool core_variables_save(const char *path);
+
 #ifdef __cplusplus
 }
 #endif
