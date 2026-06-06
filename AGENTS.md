@@ -119,7 +119,7 @@ The `core.c` module implements the frontend's `retro_environment_t`. Supported c
 | `SHUTDOWN` | ✅ Implemented | Sets `g_frontend.running = false`. |
 | `SET_SUPPORT_NO_GAME` | ✅ Implemented | Returns true. |
 | `SET_MESSAGE` | ✅ Implemented | Prints to stderr. |
-| `GET_VARIABLE` / `SET_VARIABLES` | ✅ Implemented | Stores variables sorted by key; returns the first option as the default. Supports `--variable key=value` CLI overrides. |
+| `GET_VARIABLE` / `SET_VARIABLES` | ✅ Implemented | Stores variables sorted by key; returns the first option as the default. Supports `--variable key=value` CLI overrides. Disk-persisted overrides live in `<system_directory>/<core>.opt`; CLI overrides win over disk values and are never written back. |
 | `GET_VARIABLE_UPDATE` | ✅ Implemented | Always returns false. |
 | `GET_LIBRETRO_PATH` | ✅ Implemented | Returns `g_frontend.core_path`. |
 | `SET_ROTATION` | 📝 Stub | Returns false. |

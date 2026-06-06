@@ -115,13 +115,20 @@ struct frontend_state
 
     /* Core variables (SET_VARIABLES / GET_VARIABLE).
      * Stores the key and the raw value string (description; default|opt1|...).
-     * User overrides are stored separately so they survive SET_VARIABLES resets. */
+     * User overrides are stored separately so they survive SET_VARIABLES resets.
+     *
+     * Lookup order in GET_VARIABLE: cli_overrides -> disk_overrides -> default.
+     * cli_overrides come from --variable CLI flags and are never persisted.
+     * disk_overrides are loaded from / saved to a per-core .opt file. */
     struct retro_variable *variables;
     size_t variable_count;
     size_t variable_capacity;
-    struct retro_variable *variable_overrides;
-    size_t override_count;
-    size_t override_capacity;
+    struct retro_variable *disk_overrides;
+    size_t disk_override_count;
+    size_t disk_override_capacity;
+    struct retro_variable *cli_overrides;
+    size_t cli_override_count;
+    size_t cli_override_capacity;
 };
 
 extern struct frontend_state g_frontend;

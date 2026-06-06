@@ -277,8 +277,16 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
+    /* Load persisted core option overrides before core_init so the core
+     * sees them on its first GET_VARIABLE calls. */
+    char *opt_path = core_variables_path(g_frontend.core_path,
+                                          g_frontend.system_directory);
+    if (opt_path)
+        core_variables_load(opt_path);
+
     if (!core_init(g_frontend.content_path)) {
         fprintf(stderr, "Failed to initialize core\n");
+        free(opt_path);
         frontend_shutdown();
         core_unload();
         return EXIT_FAILURE;
@@ -361,6 +369,12 @@ int main(int argc, char *argv[])
         g_frontend.video.renderer == VIDEO_RENDERER_OPENGL &&
         g_frontend.video.gl) {
         video_gl_context_destroy(g_frontend.video.gl);
+    }
+
+    /* Persist the current disk overrides while the table is still alive. */
+    if (opt_path) {
+        core_variables_save(opt_path);
+        free(opt_path);
     }
 
     core_unload();

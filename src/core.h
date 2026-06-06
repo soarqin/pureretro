@@ -55,8 +55,23 @@ bool core_init(const char *content_path);
 /* Run one frame of the core. */
 void core_run(void);
 
-/* Override a core option variable (used by --variable CLI flag). */
+/* Override a core option variable (used by --variable CLI flag).
+ * CLI overrides take priority over disk-persisted values and are not saved. */
 void core_variable_override(const char *key, const char *value);
+
+/* Load persisted core option overrides from the given file path.
+ * Missing files are not an error. Returns true on success. */
+bool core_variables_load(const char *path);
+
+/* Save the current disk overrides to the given file path.
+ * CLI-only overrides are intentionally excluded. */
+bool core_variables_save(const char *path);
+
+/* Compute the per-core options file path, given the core shared object path
+ * and a base directory (typically g_frontend.system_directory).
+ * The returned string is heap-allocated and must be freed by the caller.
+ * Returns NULL on allocation failure or if base_dir is NULL. */
+char *core_variables_path(const char *core_path, const char *base_dir);
 
 /* Environment callback exposed to the core. */
 bool RETRO_CALLCONV core_environment(unsigned cmd, void *data);
