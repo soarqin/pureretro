@@ -50,6 +50,19 @@ size_t audio_push(const int16_t *data, size_t frames)
     if (!g_frontend.audio_stream || !data)
         return 0;
 
+    /* Cap the audio queue to prevent unbounded latency buildup.
+     *
+     * Some cores (e.g. PPSSPP with the Vulkan backend) can produce
+     * multiple PSP frames of audio per retro_run() call when the GPU
+     * frame pacing is decoupled from audio generation. If the queue
+     * grows past the cap, drop the incoming batch entirely so the
+     * queue can drain. This trades occasional audio gaps for bounded
+     * latency, which is preferable to multi-second lag. */
+    int queued_bytes = SDL_GetAudioStreamQueued(g_frontend.audio_stream);
+    const int max_queued_bytes = 44100 * 2 * (int)sizeof(int16_t); /* ~1s stereo */
+    if (queued_bytes > max_queued_bytes)
+        return frames;
+
     size_t bytes = frames * FRONTEND_AUDIO_CHANNELS * sizeof(int16_t);
     if (!SDL_PutAudioStreamData(g_frontend.audio_stream, data, (int)bytes)) {
         fprintf(stderr, "SDL_PutAudioStreamData failed: %s\n", SDL_GetError());
