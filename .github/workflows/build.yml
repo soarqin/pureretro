@@ -1,0 +1,76 @@
+name: Build
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  linux-gcc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libvulkan-dev
+
+      - name: Configure (GCC)
+        run: cmake -G Ninja -B build -DCMAKE_C_COMPILER=gcc -DPURERETRO_ENABLE_VULKAN=ON
+
+      - name: Build (GCC)
+        run: cmake --build build
+
+  linux-clang:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libvulkan-dev clang
+
+      - name: Configure (Clang)
+        run: cmake -G Ninja -B build -DCMAKE_C_COMPILER=clang -DPURERETRO_ENABLE_VULKAN=ON
+
+      - name: Build (Clang)
+        run: cmake --build build
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install ninja
+
+      - name: Configure (Apple Clang)
+        run: cmake -G Ninja -B build -DPURERETRO_ENABLE_VULKAN=ON
+
+      - name: Build (Apple Clang)
+        run: cmake --build build
+
+  windows-msvc:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (MSVC)
+        run: cmake -B build
+
+      - name: Build (MSVC)
+        run: cmake --build build --config Release
+
+  windows-mingw:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (MinGW)
+        run: cmake -G "MinGW Makefiles" -B build -DCMAKE_C_COMPILER=gcc
+
+      - name: Build (MinGW)
+        run: cmake --build build

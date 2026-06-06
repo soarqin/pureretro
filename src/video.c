@@ -207,10 +207,15 @@ bool video_set_hw_render(struct retro_hw_render_callback *hw)
 
 #ifdef PURERETRO_VULKAN_ENABLED
     case RETRO_HW_CONTEXT_VULKAN:
+        if (!video_vk_init(v->window, hw, &v->vk)) {
+            /* Restore state so the core can fall back to software/GL */
+            v->renderer = VIDEO_RENDERER_SW;
+            v->hw_render_enabled = false;
+            video_sw_init(v->window, &v->sw);
+            return false;
+        }
         v->renderer = VIDEO_RENDERER_VULKAN;
         v->hw_render_enabled = true;
-        if (!video_vk_init(v->window, hw, &v->vk))
-            return false;
         hw->get_current_framebuffer = video_get_current_framebuffer;
         hw->get_proc_address = video_get_proc_address;
         memcpy(&v->hw, hw, sizeof(v->hw));
