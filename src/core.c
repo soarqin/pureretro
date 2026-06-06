@@ -494,24 +494,9 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
             (const struct retro_system_av_info *)data;
         g_av_info = *av;
 
-        if (g_frontend.video.hw_render_enabled &&
-            g_frontend.video.renderer == VIDEO_RENDERER_OPENGL &&
-            g_frontend.video.gl) {
-            video_gl_resize(g_frontend.video.gl,
-                            av->geometry.max_width,
-                            av->geometry.max_height);
+        if (g_frontend.video.hw_render_enabled) {
+            video_resize(av->geometry.max_width, av->geometry.max_height);
         }
-#ifdef PURERETRO_VULKAN_ENABLED
-        if (g_frontend.video.hw_render_enabled &&
-            g_frontend.video.renderer == VIDEO_RENDERER_VULKAN &&
-            g_frontend.video.vk &&
-            g_frontend.video.window) {
-            /* The Vulkan swapchain follows the window/surface size rather
-             * than the AV info geometry, but recreate it so anything that
-             * caches dimensions sees a fresh swapchain. */
-            video_vk_resize(g_frontend.video.vk, g_frontend.video.window);
-        }
-#endif
         return true;
     }
 
@@ -533,27 +518,20 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         return video_negotiate_hw_context(
             (const struct retro_hw_render_context_negotiation_interface *)data);
 
-#ifdef PURERETRO_VULKAN_ENABLED
-    case RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE & ~RETRO_ENVIRONMENT_EXPERIMENTAL:
+    case RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE & ~RETRO_ENVIRONMENT_EXPERIMENTAL: {
         if (!require_data(cmd, data))
             return false;
-        fprintf(stderr, "GET_HW_RENDER_INTERFACE: renderer=%d vk=%p\n",
-                (int)g_frontend.video.renderer, (void *)g_frontend.video.vk);
-        if (g_frontend.video.renderer != VIDEO_RENDERER_VULKAN || !g_frontend.video.vk)
+        const struct retro_hw_render_interface **iface =
+            (const struct retro_hw_render_interface **)data;
+        if (!video_get_hw_render_interface(iface)) {
+            fprintf(stderr,
+                    "GET_HW_RENDER_INTERFACE: no interface for active backend\n");
             return false;
-        {
-            const struct retro_hw_render_interface **iface =
-                (const struct retro_hw_render_interface **)data;
-            *iface = (const struct retro_hw_render_interface *)&g_frontend.video.vk->hw_if;
         }
-        fprintf(stderr, "GET_HW_RENDER_INTERFACE: returning hw_if=%p\n",
-                (void *)&g_frontend.video.vk->hw_if);
+        fprintf(stderr, "GET_HW_RENDER_INTERFACE: returning %p\n",
+                (const void *)*iface);
         return true;
-#else
-    case RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE & ~RETRO_ENVIRONMENT_EXPERIMENTAL:
-        fprintf(stderr, "GET_HW_RENDER_INTERFACE: PURERETRO_VULKAN_ENABLED not defined\n");
-        return false;
-#endif
+    }
 
     default:
         fprintf(stderr, "Unhandled cmd: %u (0x%x, raw 0x%x)\n", cmd, cmd, raw_cmd);

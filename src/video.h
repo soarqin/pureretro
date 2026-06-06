@@ -48,6 +48,28 @@ retro_proc_address_t video_get_proc_address(const char *sym);
  * Called when the core sets RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE. */
 bool video_negotiate_hw_context(const struct retro_hw_render_context_negotiation_interface *iface);
 
+/* Resize the active backend's render target (FBO for GL, swapchain
+ * for VK, no-op for SW). Called from SET_SYSTEM_AV_INFO and from
+ * window-resize events. Returns false only on real failure. */
+bool video_resize(unsigned width, unsigned height);
+
+/* Populate *out with a pointer to the backend-owned hardware render
+ * interface (e.g. retro_hw_render_interface_vulkan for Vulkan).
+ * Returns false if the active backend doesn't have one (SW, GL).
+ * The returned pointer lives until the backend is destroyed. */
+bool video_get_hw_render_interface(const struct retro_hw_render_interface **out);
+
+/* Backend-specific pre-shutdown teardown. Currently used by GL to
+ * release the GL context before SDL_DestroyWindow runs. No-op for
+ * SW and VK. Safe to call when no backend is active. */
+void video_context_destroy(void);
+
+/* Bring up the software backend if no backend has been activated
+ * yet (i.e. the core never sent SET_HW_RENDER). Creates the SDL
+ * window with sw_backend.window_flags() and calls sw_backend.init.
+ * No-op (returns true) if a backend is already active. */
+bool video_ensure_software_renderer(void);
+
 #ifdef __cplusplus
 }
 #endif

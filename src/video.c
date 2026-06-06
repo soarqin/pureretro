@@ -256,3 +256,54 @@ bool video_negotiate_hw_context(
         return false;
     return v->backend->negotiate_device(v->backend_ctx, iface);
 }
+
+bool video_resize(unsigned width, unsigned height)
+{
+    struct video_state *v = &g_frontend.video;
+    if (!v->backend || !v->backend_ctx)
+        return false;
+    return v->backend->resize(v->backend_ctx, v->window, width, height);
+}
+
+bool video_get_hw_render_interface(const struct retro_hw_render_interface **out)
+{
+    struct video_state *v = &g_frontend.video;
+    if (!out || !v->backend || !v->backend_ctx)
+        return false;
+    return v->backend->get_hw_render_interface(v->backend_ctx, out);
+}
+
+void video_context_destroy(void)
+{
+    struct video_state *v = &g_frontend.video;
+    if (!v->backend || !v->backend_ctx)
+        return;
+    v->backend->context_destroy(v->backend_ctx);
+}
+
+bool video_ensure_software_renderer(void)
+{
+    struct video_state *v = &g_frontend.video;
+    if (v->backend && v->backend_ctx)
+        return true;
+
+    if (!v->window) {
+        v->window = SDL_CreateWindow("PureRetro", 640, 480,
+                                     sw_backend.window_flags());
+        if (!v->window) {
+            fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
+            return false;
+        }
+    }
+
+    void *ctx = NULL;
+    if (!sw_backend.init(v->window, NULL, &ctx))
+        return false;
+
+    v->backend = &sw_backend;
+    v->backend_ctx = ctx;
+    v->renderer = VIDEO_RENDERER_SW;
+    v->hw_render_enabled = false;
+    sync_legacy_fields(v);
+    return true;
+}

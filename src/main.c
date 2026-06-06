@@ -311,26 +311,14 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    /* Create window for software cores that never called SET_HW_RENDER.
-     * Hardware cores already created the window (with the correct flags)
-     * inside video_set_hw_render when they selected their renderer. */
-    if (!g_frontend.video.window) {
-        g_frontend.video.window = SDL_CreateWindow("PureRetro", 640, 480, 0);
-        if (!g_frontend.video.window) {
-            fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
-            free(opt_path);
-            core_unload();
-            frontend_shutdown();
-            return EXIT_FAILURE;
-        }
-        if (!video_sw_init(g_frontend.video.window, &g_frontend.video.sw)) {
-            fprintf(stderr, "Failed to initialize software renderer\n");
-            free(opt_path);
-            core_unload();
-            frontend_shutdown();
-            return EXIT_FAILURE;
-        }
-        fprintf(stderr, "Created window for software renderer\n");
+    /* Software-only cores never call SET_HW_RENDER, so bootstrap
+     * the software backend here. No-op for hardware cores. */
+    if (!video_ensure_software_renderer()) {
+        fprintf(stderr, "Failed to initialize software renderer\n");
+        free(opt_path);
+        core_unload();
+        frontend_shutdown();
+        return EXIT_FAILURE;
     }
 
     if (g_frontend.fullscreen && g_frontend.video.window) {
@@ -386,10 +374,8 @@ int main(int argc, char *argv[])
      * video_gl_destroy (during frontend_shutdown) is a no-op.
      * For Vulkan, keep unloading the core first so its background threads
      * stop before we tear down the VkInstance. */
-    if (g_frontend.video.hw_render_enabled &&
-        g_frontend.video.renderer == VIDEO_RENDERER_OPENGL &&
-        g_frontend.video.gl) {
-        video_gl_context_destroy(g_frontend.video.gl);
+    if (g_frontend.video.hw_render_enabled) {
+        video_context_destroy();
     }
 
     /* Persist the current disk overrides while the table is still alive. */
