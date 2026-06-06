@@ -36,6 +36,7 @@ endif()
 set(PURERETRO_SOURCES
     src/main.c
     src/core.c
+    src/core_variables_parse.c
     src/video.c
     src/video_sw.c
     src/video_gl.c
@@ -46,6 +47,7 @@ set(PURERETRO_SOURCES
 set(PURERETRO_HEADERS
     src/frontend.h
     src/core.h
+    src/core_variables_parse.h
     src/video.h
     src/video_sw.h
     src/video_gl.h

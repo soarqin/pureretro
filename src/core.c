@@ -11,6 +11,7 @@
 #include <stdarg.h>
 #include <SDL3/SDL.h>
 #include "core.h"
+#include "core_variables_parse.h"
 #include "frontend.h"
 #include "video.h"
 #include "video_gl.h"
@@ -110,79 +111,6 @@ static const char *variables_find(const struct retro_variable *vars, size_t coun
                                                 sizeof(struct retro_variable),
                                                 variable_cmp);
     return found ? found->value : NULL;
-}
-
-/* Parse the default value from a retro_variable value string.
- * Format: "description; default|option1|option2|..."
- *
- * Writes the default into out (a caller-supplied buffer of out_len bytes)
- * and returns true on success. Returns false if no default could be parsed.
- *
- * NOTE: Even on a false return, out[0] is set to '\0' (when out_len > 0) so
- * callers can safely read out without checking the return code first. */
-static bool parse_default_value(const char *raw, char *out, size_t out_len)
-{
-    if (!out || out_len == 0)
-        return false;
-    out[0] = '\0';
-    if (!raw)
-        return false;
-
-    const char *def = strchr(raw, ';');
-    if (def) {
-        ++def;
-        while (*def == ' ')
-            ++def;
-    } else {
-        /* No description; the entire string is the options list. */
-        def = raw;
-    }
-
-    if (*def == '\0')
-        return false;
-
-    size_t i = 0;
-    while (*def && *def != '|' && i < out_len - 1)
-        out[i++] = *def++;
-    out[i] = '\0';
-    return i > 0;
-}
-
-/* Copy the description portion (text before ';') of a raw variable value into
- * out. Trailing whitespace is trimmed. If no ';' is present, out is empty. */
-static void parse_description(const char *raw, char *out, size_t out_len)
-{
-    if (!out || out_len == 0)
-        return;
-    out[0] = '\0';
-    if (!raw)
-        return;
-
-    const char *semi = strchr(raw, ';');
-    size_t n = semi ? (size_t)(semi - raw) : 0;
-    if (n >= out_len)
-        n = out_len - 1;
-    memcpy(out, raw, n);
-    out[n] = '\0';
-
-    /* Trim trailing whitespace */
-    while (n > 0 && (out[n - 1] == ' ' || out[n - 1] == '\t'))
-        out[--n] = '\0';
-}
-
-/* Return a pointer to the first character of the choices list in a raw
- * variable value string (i.e. just past "; "), or NULL if none. */
-static const char *choices_begin(const char *raw)
-{
-    if (!raw)
-        return NULL;
-    const char *p = strchr(raw, ';');
-    if (!p)
-        return raw;
-    ++p;
-    while (*p == ' ')
-        ++p;
-    return *p ? p : NULL;
 }
 
 /* ------------------------------------------------------------------ */
@@ -312,7 +240,7 @@ bool core_variables_load(const char *path)
  * in the raw value; we normalize separators with " | " for readability. */
 static void write_choices_comment(FILE *fp, const char *raw)
 {
-    const char *p = choices_begin(raw);
+    const char *p = core_var_choices_begin(raw);
     if (!p)
         return;
 
@@ -379,14 +307,14 @@ bool core_variables_save(const char *path)
             /* No persisted value (should not happen — SET_VARIABLES seeds
              * one). Fall back to parsing the default on the fly. */
             static char def[256];
-            if (parse_default_value(raw, def, sizeof(def)))
+            if (core_var_parse_default(raw, def, sizeof(def)))
                 value = def;
         }
         if (!value)
             continue;
 
         char desc[256];
-        parse_description(raw, desc, sizeof(desc));
+        core_var_parse_description(raw, desc, sizeof(desc));
 
         fputc('\n', fp);
         if (desc[0])
@@ -811,7 +739,7 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
             return false;
 
         static char fallback_buf[256];
-        if (!parse_default_value(raw, fallback_buf, sizeof(fallback_buf)))
+        if (!core_var_parse_default(raw, fallback_buf, sizeof(fallback_buf)))
             return false;
         var->value = fallback_buf;
         return true;
@@ -849,7 +777,7 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
                 continue;
 
             char def[256];
-            if (!parse_default_value(g_frontend.variables[i].value,
+            if (!core_var_parse_default(g_frontend.variables[i].value,
                                      def, sizeof(def)))
                 continue;
             if (variable_add(&g_frontend.disk_overrides,
