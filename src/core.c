@@ -206,6 +206,13 @@ bool core_init(const char *content_path)
             g_av_info.timing.fps,
             g_av_info.timing.sample_rate);
 
+    /* Notify the core that the HW context is ready. This must happen after
+     * retro_load_game returns so the core has finished its own setup. */
+    if (g_frontend.video.hw_render_enabled && g_frontend.video.hw.context_reset) {
+        fprintf(stderr, "Calling context_reset after retro_load_game...\n");
+        g_frontend.video.hw.context_reset();
+    }
+
     return true;
 }
 

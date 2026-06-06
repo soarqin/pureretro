@@ -207,8 +207,6 @@ bool video_set_hw_render(struct retro_hw_render_callback *hw)
             fprintf(stderr, "  warning: user preferred '%s' but core chose 'gl'\n",
                     renderer_name(g_frontend.preferred_renderer));
         }
-        if (hw->context_reset)
-            hw->context_reset();
         return true;
     }
 
@@ -227,8 +225,6 @@ bool video_set_hw_render(struct retro_hw_render_callback *hw)
             fprintf(stderr, "  warning: user preferred '%s' but core chose 'vk'\n",
                     renderer_name(g_frontend.preferred_renderer));
         }
-        if (hw->context_reset)
-            hw->context_reset();
         return true;
 #endif
 
