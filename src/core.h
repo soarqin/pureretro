@@ -55,6 +55,9 @@ bool core_init(const char *content_path);
 /* Run one frame of the core. */
 void core_run(void);
 
+/* Override a core option variable (used by --variable CLI flag). */
+void core_variable_override(const char *key, const char *value);
+
 /* Environment callback exposed to the core. */
 bool RETRO_CALLCONV core_environment(unsigned cmd, void *data);
 

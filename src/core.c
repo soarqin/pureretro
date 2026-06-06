@@ -24,6 +24,122 @@ struct retro_system_av_info g_av_info;
 static SDL_SharedObject *g_core_handle = NULL;
 
 /* ------------------------------------------------------------------ */
+/* Variable management (SET_VARIABLES / GET_VARIABLE)                 */
+/* ------------------------------------------------------------------ */
+
+static void variables_free(struct retro_variable **vars, size_t *count)
+{
+    if (!*vars)
+        return;
+    for (size_t i = 0; i < *count; ++i) {
+        free((char *)(*vars)[i].key);
+        free((char *)(*vars)[i].value);
+    }
+    free(*vars);
+    *vars = NULL;
+    *count = 0;
+}
+
+static bool variable_add(struct retro_variable **vars, size_t *count,
+                         size_t *capacity, const char *key, const char *value)
+{
+    /* Check if key already exists: update in-place */
+    for (size_t i = 0; i < *count; ++i) {
+        if (strcmp((*vars)[i].key, key) == 0) {
+            size_t vl = strlen(value);
+            char *v = malloc(vl + 1);
+            if (!v)
+                return false;
+            memcpy(v, value, vl + 1);
+            free((char *)(*vars)[i].value);
+            (*vars)[i].value = v;
+            return true;
+        }
+    }
+
+    if (*count >= *capacity) {
+        size_t new_cap = *capacity ? *capacity * 2 : 16;
+        struct retro_variable *new_arr = realloc(*vars,
+                                                 new_cap * sizeof(struct retro_variable));
+        if (!new_arr)
+            return false;
+        *vars = new_arr;
+        *capacity = new_cap;
+    }
+
+    size_t kl = strlen(key);
+    size_t vl = strlen(value);
+    char *k = malloc(kl + 1);
+    char *v = malloc(vl + 1);
+    if (!k || !v) {
+        free(k);
+        free(v);
+        return false;
+    }
+    memcpy(k, key, kl + 1);
+    memcpy(v, value, vl + 1);
+
+    (*vars)[*count].key = k;
+    (*vars)[*count].value = v;
+    (*count)++;
+    return true;
+}
+
+static int variable_cmp(const void *a, const void *b)
+{
+    const struct retro_variable *va = (const struct retro_variable *)a;
+    const struct retro_variable *vb = (const struct retro_variable *)b;
+    return strcmp(va->key, vb->key);
+}
+
+static void variables_sort(struct retro_variable *vars, size_t count)
+{
+    if (count > 1)
+        qsort(vars, count, sizeof(struct retro_variable), variable_cmp);
+}
+
+static const char *variables_find(const struct retro_variable *vars, size_t count,
+                                  const char *key)
+{
+    if (!vars || count == 0)
+        return NULL;
+
+    struct retro_variable target = { key, NULL };
+    const struct retro_variable *found =
+        (const struct retro_variable *)bsearch(&target, vars, count,
+                                                sizeof(struct retro_variable),
+                                                variable_cmp);
+    return found ? found->value : NULL;
+}
+
+/* Parse the default value from a retro_variable value string.
+ * Format: "description; default|option1|option2|..." */
+static const char *parse_default_value(const char *raw)
+{
+    if (!raw)
+        return NULL;
+
+    const char *semi = strchr(raw, ';');
+    if (!semi)
+        return raw; /* no description, entire string is options */
+
+    const char *def = semi + 1;
+    while (*def == ' ')
+        ++def;
+
+    if (*def == '\0')
+        return NULL;
+
+    static char buf[256];
+    size_t i = 0;
+    while (*def && *def != '|' && i < sizeof(buf) - 1)
+        buf[i++] = *def++;
+    buf[i] = '\0';
+
+    return buf;
+}
+
+/* ------------------------------------------------------------------ */
 /* Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -145,7 +261,23 @@ void core_unload(void)
         g_frontend.rom_size = 0;
     }
 
+    variables_free(&g_frontend.variables, &g_frontend.variable_count);
+    g_frontend.variable_capacity = 0;
+    /* Note: overrides are intentionally kept across core reloads. */
+
     memset(&g_core, 0, sizeof(g_core));
+}
+
+void core_variable_override(const char *key, const char *value)
+{
+    if (!key || !value)
+        return;
+    if (!variable_add(&g_frontend.variable_overrides, &g_frontend.override_count,
+                      &g_frontend.override_capacity, key, value)) {
+        fprintf(stderr, "Failed to store variable override: %s=%s\n", key, value);
+    } else {
+        fprintf(stderr, "Variable override: %s=%s\n", key, value);
+    }
 }
 
 bool core_init(const char *content_path)
@@ -311,15 +443,47 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         return result;
     }
 
-    case RETRO_ENVIRONMENT_GET_VARIABLE:
-        if (strcmp(((struct retro_variable *)data)->key, "beetle_psx_hw_renderer") == 0) {
-            ((struct retro_variable *)data)->value = "hardware_gl";
+    case RETRO_ENVIRONMENT_GET_VARIABLE: {
+        struct retro_variable *var = (struct retro_variable *)data;
+        const char *override = variables_find(g_frontend.variable_overrides,
+                                               g_frontend.override_count,
+                                               var->key);
+        if (override) {
+            var->value = override;
             return true;
         }
-        return false;
 
-    case RETRO_ENVIRONMENT_SET_VARIABLES:
-        return false;
+        const char *raw = variables_find(g_frontend.variables,
+                                          g_frontend.variable_count,
+                                          var->key);
+        if (!raw)
+            return false;
+
+        var->value = parse_default_value(raw);
+        return var->value != NULL;
+    }
+
+    case RETRO_ENVIRONMENT_SET_VARIABLES: {
+        const struct retro_variable *vars = (const struct retro_variable *)data;
+        if (!vars)
+            return false;
+
+        /* Replace the entire variable table */
+        variables_free(&g_frontend.variables, &g_frontend.variable_count);
+        g_frontend.variable_capacity = 0;
+
+        bool ok = true;
+        for (const struct retro_variable *v = vars; v && v->key; ++v) {
+            if (!variable_add(&g_frontend.variables, &g_frontend.variable_count,
+                              &g_frontend.variable_capacity, v->key, v->value)) {
+                ok = false;
+                break;
+            }
+        }
+        variables_sort(g_frontend.variables, g_frontend.variable_count);
+        fprintf(stderr, "Core registered %zu variables\n", g_frontend.variable_count);
+        return ok;
+    }
 
     case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE:
         *(bool *)data = false;

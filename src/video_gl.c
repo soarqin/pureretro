@@ -54,7 +54,8 @@ typedef PFNGLBLITFRAMEBUFFERPROC PFNGLBlitFramebufferPROC;
 
 static void gl_fbo_destroy(struct video_gl_context *ctx);
 
-static bool gl_fbo_create(struct video_gl_context *ctx, unsigned width, unsigned height)
+static bool gl_fbo_create(struct video_gl_context *ctx, unsigned width, unsigned height,
+                            bool need_depth, bool need_stencil)
 {
     PFNGLGENFRAMEBUFFERSPROC glGenFramebuffers = GLPROC(GenFramebuffers);
     PFNGLGENTEXTURESPROC glGenTextures = GLPROC(GenTextures);
@@ -90,9 +91,6 @@ static bool gl_fbo_create(struct video_gl_context *ctx, unsigned width, unsigned
     glBindFramebuffer(GL_FRAMEBUFFER, ctx->fbo);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
                            GL_TEXTURE_2D, ctx->fbo_texture, 0);
-
-    bool need_depth   = g_frontend.video.hw.depth;
-    bool need_stencil = g_frontend.video.hw.stencil;
 
     if (need_depth || need_stencil) {
         if (!glGenRenderbuffers || !glBindRenderbuffer ||
@@ -260,7 +258,7 @@ bool video_gl_init(SDL_Window *window, struct retro_hw_render_callback *hw,
     /* Create an FBO for the core to render into. */
     int w, h;
     SDL_GetWindowSizeInPixels(window, &w, &h);
-    if (!gl_fbo_create(ctx, (unsigned)w, (unsigned)h)) {
+    if (!gl_fbo_create(ctx, (unsigned)w, (unsigned)h, hw->depth, hw->stencil)) {
         SDL_GL_DestroyContext(ctx->gl_context);
         free(ctx);
         return false;
@@ -295,7 +293,9 @@ bool video_gl_resize(struct video_gl_context *ctx, unsigned width, unsigned heig
         return true;
 
     gl_fbo_destroy(ctx);
-    return gl_fbo_create(ctx, width, height);
+    return gl_fbo_create(ctx, width, height,
+                         g_frontend.video.hw.depth,
+                         g_frontend.video.hw.stencil);
 }
 
 void video_gl_context_reset(struct video_gl_context *ctx)
@@ -337,6 +337,8 @@ void video_gl_present(struct video_gl_context *ctx, unsigned width, unsigned hei
 
     int w, h;
     SDL_GetWindowSizeInPixels(g_frontend.video.window, &w, &h);
+
+    SDL_GL_MakeCurrent(g_frontend.video.window, ctx->gl_context);
 
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     glViewport(0, 0, w, h);

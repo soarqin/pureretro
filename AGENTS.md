@@ -93,7 +93,7 @@ bool frontend_is_running(void)
 - Provide `get_proc_address` via `SDL_GL_GetProcAddress`.
 - The frontend manages an FBO for `get_current_framebuffer`; returning 0 is valid for the default framebuffer but explicit FBO management is preferred for consistency.
 - Honor `retro_hw_render_callback::bottom_left_origin`.
-- Call `context_reset` after context creation. Call `context_destroy` before tearing it down.
+- Call `context_reset` after context creation, but **only after** `retro_environment(SET_HW_RENDER)` has returned so the core has finished its own setup. Call `context_destroy` before tearing the context down.
 
 ### Vulkan
 
@@ -119,7 +119,7 @@ The `core.c` module implements the frontend's `retro_environment_t`. Supported c
 | `SHUTDOWN` | ✅ Implemented | Sets `g_frontend.running = false`. |
 | `SET_SUPPORT_NO_GAME` | ✅ Implemented | Returns true. |
 | `SET_MESSAGE` | ✅ Implemented | Prints to stderr. |
-| `GET_VARIABLE` / `SET_VARIABLES` | 📝 Stub | Returns false (no core options UI yet). |
+| `GET_VARIABLE` / `SET_VARIABLES` | ✅ Implemented | Stores variables sorted by key; returns the first option as the default. Supports `--variable key=value` CLI overrides. |
 | `GET_VARIABLE_UPDATE` | ✅ Implemented | Always returns false. |
 | `GET_LIBRETRO_PATH` | ✅ Implemented | Returns `g_frontend.core_path`. |
 | `SET_ROTATION` | 📝 Stub | Returns false. |

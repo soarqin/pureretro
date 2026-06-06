@@ -102,6 +102,16 @@ struct frontend_state
     /* Loaded ROM data (owned by frontend, freed on shutdown) */
     void *rom_data;
     size_t rom_size;
+
+    /* Core variables (SET_VARIABLES / GET_VARIABLE).
+     * Stores the key and the raw value string (description; default|opt1|...).
+     * User overrides are stored separately so they survive SET_VARIABLES resets. */
+    struct retro_variable *variables;
+    size_t variable_count;
+    size_t variable_capacity;
+    struct retro_variable *variable_overrides;
+    size_t override_count;
+    size_t override_capacity;
 };
 
 extern struct frontend_state g_frontend;

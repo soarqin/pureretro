@@ -27,6 +27,7 @@ static void print_usage(const char *argv0)
     fprintf(stderr, "  --fullscreen, -f    Start in fullscreen mode\n");
     fprintf(stderr, "  --render <api>      Hint preferred renderer: vk, gl, or sw\n");
     fprintf(stderr, "                      (Core may still choose a different renderer.)\n");
+    fprintf(stderr, "  --variable <k=v>    Override a core option variable\n");
 }
 
 static bool parse_render(const char *arg, enum video_renderer *out)
@@ -83,6 +84,26 @@ static bool parse_args(int argc, char *argv[])
             }
             fprintf(stderr, "Renderer preference: %s\n",
                     renderer_name(g_frontend.preferred_renderer));
+        } else if (strcmp(argv[i], "--variable") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--variable requires an argument (key=value)\n");
+                print_usage(argv[0]);
+                return false;
+            }
+            const char *arg = argv[++i];
+            const char *eq = strchr(arg, '=');
+            if (!eq) {
+                fprintf(stderr, "Invalid variable syntax: '%s' (expected key=value)\n", arg);
+                print_usage(argv[0]);
+                return false;
+            }
+            char *key = malloc((size_t)(eq - arg + 1));
+            if (!key)
+                return false;
+            memcpy(key, arg, (size_t)(eq - arg));
+            key[eq - arg] = '\0';
+            core_variable_override(key, eq + 1);
+            free(key);
         } else {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             print_usage(argv[0]);
