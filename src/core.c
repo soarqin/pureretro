@@ -244,11 +244,17 @@ bool core_load(const char *path)
 
 void core_unload(void)
 {
-    if (g_core.retro_deinit)
-        g_core.retro_deinit();
-
+    /* libretro lifecycle: retro_unload_game() must be called before
+     * retro_deinit(). Cores like PPSSPP spawn background threads during
+     * retro_load_game(); retro_unload_game() is responsible for stopping
+     * them. Calling retro_deinit() first would tear down global state
+     * while those threads are still running, leading to use-after-free
+     * or null-pointer crashes (e.g. in System_AudioPushSamples). */
     if (g_core.retro_unload_game)
         g_core.retro_unload_game();
+
+    if (g_core.retro_deinit)
+        g_core.retro_deinit();
 
     if (g_core_handle) {
         SDL_UnloadObject(g_core_handle);

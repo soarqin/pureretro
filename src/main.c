@@ -12,6 +12,8 @@
 #include "frontend.h"
 #include "core.h"
 #include "video.h"
+#include "video_sw.h"
+#include "video_gl.h"
 #include "audio.h"
 #include "input.h"
 
@@ -166,10 +168,6 @@ static bool frontend_init(void)
         return false;
     }
 
-    if (g_frontend.fullscreen && g_frontend.video.window) {
-        SDL_SetWindowFullscreen(g_frontend.video.window, true);
-    }
-
     /* Audio will be initialized after the core loads and reports its sample rate. */
 
     return true;
@@ -187,8 +185,14 @@ static void frontend_shutdown(void)
 static void run_loop(void)
 {
     SDL_Event event;
+    Uint64 target_frame_ns = 0;
+
+    if (g_av_info.timing.fps > 0.0)
+        target_frame_ns = (Uint64)(1000000000.0 / g_av_info.timing.fps);
 
     while (g_frontend.running) {
+        Uint64 frame_start = SDL_GetTicksNS();
+
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
             case SDL_EVENT_QUIT:
@@ -218,6 +222,12 @@ static void run_loop(void)
 
         input_poll();
         core_run();
+
+        if (target_frame_ns > 0) {
+            Uint64 elapsed = SDL_GetTicksNS() - frame_start;
+            if (elapsed < target_frame_ns)
+                SDL_DelayNS(target_frame_ns - elapsed);
+        }
     }
 }
 
@@ -242,6 +252,30 @@ int main(int argc, char *argv[])
         frontend_shutdown();
         core_unload();
         return EXIT_FAILURE;
+    }
+
+    /* Create window for software cores that never called SET_HW_RENDER.
+     * Hardware cores already created the window (with the correct flags)
+     * inside video_set_hw_render when they selected their renderer. */
+    if (!g_frontend.video.window) {
+        g_frontend.video.window = SDL_CreateWindow("PureRetro", 640, 480, 0);
+        if (!g_frontend.video.window) {
+            fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
+            frontend_shutdown();
+            core_unload();
+            return EXIT_FAILURE;
+        }
+        if (!video_sw_init(g_frontend.video.window, &g_frontend.video.sw)) {
+            fprintf(stderr, "Failed to initialize software renderer\n");
+            frontend_shutdown();
+            core_unload();
+            return EXIT_FAILURE;
+        }
+        fprintf(stderr, "Created window for software renderer\n");
+    }
+
+    if (g_frontend.fullscreen && g_frontend.video.window) {
+        SDL_SetWindowFullscreen(g_frontend.video.window, true);
     }
 
     /* Log the final renderer state after core init. If the core never called
@@ -286,10 +320,19 @@ int main(int argc, char *argv[])
 
     run_loop();
 
-    /* Unload the core before shutting down frontend resources.
-     * For Vulkan, the core may have background threads (e.g. PPSSPP's
-     * VulkanRenderManager) that share the same VkInstance. We must let
-     * the core stop those threads before we destroy the instance. */
+    /* For OpenGL, invoke the core's context_destroy callback while the
+     * core is still loaded. The callback lives inside the core's shared
+     * object; calling it after SDL_UnloadObject would segfault.
+     * video_gl_context_destroy() zeros the pointer so the later call in
+     * video_gl_destroy (during frontend_shutdown) is a no-op.
+     * For Vulkan, keep unloading the core first so its background threads
+     * stop before we tear down the VkInstance. */
+    if (g_frontend.video.hw_render_enabled &&
+        g_frontend.video.renderer == VIDEO_RENDERER_OPENGL &&
+        g_frontend.video.gl) {
+        video_gl_context_destroy(g_frontend.video.gl);
+    }
+
     core_unload();
     frontend_shutdown();
 

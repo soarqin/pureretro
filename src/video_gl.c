@@ -311,8 +311,12 @@ void video_gl_context_destroy(struct video_gl_context *ctx)
     if (!ctx)
         return;
 
-    if (g_frontend.video.hw.context_destroy)
+    if (g_frontend.video.hw.context_destroy) {
         g_frontend.video.hw.context_destroy();
+        /* Zero the pointer so video_gl_destroy (called after core_unload)
+         * does not try to invoke code from an unloaded shared object. */
+        g_frontend.video.hw.context_destroy = NULL;
+    }
 }
 
 void video_gl_present(struct video_gl_context *ctx, unsigned width, unsigned height)
