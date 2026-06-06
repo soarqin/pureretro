@@ -137,6 +137,10 @@ The `core.c` module implements the frontend's `retro_environment_t`. Supported c
 | `GET_PERF_INTERFACE` | 📝 Stub | Returns false. |
 | `GET_LOCATION_INTERFACE` | 📝 Stub | Returns false. |
 | `GET_CORE_ASSETS_DIRECTORY` | ✅ Implemented | Returns NULL. |
+| `GET_LANGUAGE` | ✅ Implemented | Returns `RETRO_LANGUAGE_ENGLISH`. |
+| `SET_CORE_OPTIONS_DISPLAY` | 📝 Stub | Returns false. |
+| `SET_VARIABLE` | 📝 Stub | Returns false. |
+| `SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE` | 📝 Stub | Returns false. |
 
 ## Cross-Platform Rules
 

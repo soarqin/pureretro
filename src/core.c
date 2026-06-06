@@ -551,21 +551,35 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         return true;
     }
 
+    case RETRO_ENVIRONMENT_GET_LANGUAGE:
+        *(enum retro_language *)data = RETRO_LANGUAGE_ENGLISH;
+        return true;
+
+    case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY:
+        return false;
+
+    case RETRO_ENVIRONMENT_SET_VARIABLE:
+        return false;
+
+    case 43: /* SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE (base value) */
+        return false;
+
 #ifdef PURERETRO_VULKAN_ENABLED
-    case RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE: {
+    case 41: /* GET_HW_RENDER_INTERFACE (base value, see cmd &= ~EXPERIMENTAL above) */
         fprintf(stderr, "GET_HW_RENDER_INTERFACE: renderer=%d vk=%p\n",
                 (int)g_frontend.video.renderer, (void *)g_frontend.video.vk);
         if (g_frontend.video.renderer != VIDEO_RENDERER_VULKAN || !g_frontend.video.vk)
             return false;
-        const struct retro_hw_render_interface **iface =
-            (const struct retro_hw_render_interface **)data;
-        *iface = (const struct retro_hw_render_interface *)&g_frontend.video.vk->hw_if;
+        {
+            const struct retro_hw_render_interface **iface =
+                (const struct retro_hw_render_interface **)data;
+            *iface = (const struct retro_hw_render_interface *)&g_frontend.video.vk->hw_if;
+        }
         fprintf(stderr, "GET_HW_RENDER_INTERFACE: returning hw_if=%p\n",
                 (void *)&g_frontend.video.vk->hw_if);
         return true;
-    }
 #else
-    case RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE:
+    case 41: /* GET_HW_RENDER_INTERFACE (base value) */
         fprintf(stderr, "GET_HW_RENDER_INTERFACE: PURERETRO_VULKAN_ENABLED not defined\n");
         return false;
 #endif
