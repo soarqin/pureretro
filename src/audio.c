@@ -50,18 +50,20 @@ size_t audio_push(const int16_t *data, size_t frames)
     if (!g_frontend.audio_stream || !data)
         return 0;
 
-    /* Cap the audio queue to prevent unbounded latency buildup.
+    /* Keep the SDL audio queue bounded to avoid multi-second latency.
      *
-     * Some cores (e.g. PPSSPP with the Vulkan backend) can produce
+     * Some cores (notably PPSSPP on the Vulkan backend) can produce
      * multiple PSP frames of audio per retro_run() call when the GPU
-     * frame pacing is decoupled from audio generation. If the queue
-     * grows past the cap, drop the incoming batch entirely so the
-     * queue can drain. This trades occasional audio gaps for bounded
-     * latency, which is preferable to multi-second lag. */
+     * FramebufferDirty() flag does not trigger Core_NextFrame in
+     * time. On audio backends with large internal buffers (e.g.
+     * PulseAudio on Linux), the queue can also accumulate extra
+     * latency. When the queue grows past the cap, clear the stale
+     * backlog and continue pushing fresh data so playback never
+     * stalls. The trade-off is an audible click on each skip. */
     int queued_bytes = SDL_GetAudioStreamQueued(g_frontend.audio_stream);
     const int max_queued_bytes = 44100 * 2 * (int)sizeof(int16_t); /* ~1s stereo */
     if (queued_bytes > max_queued_bytes)
-        return frames;
+        SDL_ClearAudioStream(g_frontend.audio_stream);
 
     size_t bytes = frames * FRONTEND_AUDIO_CHANNELS * sizeof(int16_t);
     if (!SDL_PutAudioStreamData(g_frontend.audio_stream, data, (int)bytes)) {
