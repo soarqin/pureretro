@@ -74,6 +74,11 @@ struct frontend_state
     bool fullscreen;
     bool no_audio;
 
+    /* Portable mode: when true, the system directory lives in the current
+     * working directory ("<cwd>/system") instead of the user data directory
+     * returned by SDL_GetPrefPath. Set via the --portable CLI flag. */
+    bool portable;
+
     /* User-requested renderer preference (VIDEO_RENDERER_NONE = no preference).
      * Set via the --render CLI flag. The core may still request a different
      * renderer; this is a hint, not a hard requirement. */

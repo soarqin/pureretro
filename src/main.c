@@ -32,6 +32,8 @@ static void print_usage(const char *argv0)
     fprintf(stderr, "  --scale <N>         Integer window scale (1-16)\n");
     fprintf(stderr, "  --no-audio          Disable audio output\n");
     fprintf(stderr, "  --variable <k=v>    Override a core option variable\n");
+    fprintf(stderr, "  --portable          Portable mode: use the current directory as the\n");
+    fprintf(stderr, "                      config base (system files in ./system)\n");
 }
 
 static bool parse_render(const char *arg, enum video_renderer *out)
@@ -90,6 +92,8 @@ static bool parse_args(int argc, char *argv[])
             g_frontend.window_scale = (unsigned)val;
         } else if (strcmp(argv[i], "--no-audio") == 0) {
             g_frontend.no_audio = true;
+        } else if (strcmp(argv[i], "--portable") == 0) {
+            g_frontend.portable = true;
         } else if (strcmp(argv[i], "--render") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "--render requires an argument (vk, gl, or sw)\n");
@@ -144,21 +148,47 @@ static bool frontend_init(void)
     g_frontend.running = true;
 
     /* Set up the system directory for firmware/BIOS files.
-     * SDL_GetPrefPath returns a platform-appropriate user data directory.
      * Cores like Beetle PSX HW look here for scph5500.bin etc. */
-    const char *pref = SDL_GetPrefPath("pureretro", "system");
-    if (pref) {
-        /* SDL_GetPrefPath already appends the app name ("system") and a
-         * trailing separator. Copy it into our own buffer. */
-        size_t len = strlen(pref);
-        g_frontend.system_directory = malloc(len + 1);
-        if (g_frontend.system_directory) {
-            memcpy(g_frontend.system_directory, pref, len + 1);
-            fprintf(stderr, "System directory: %s\n", g_frontend.system_directory);
-            /* Create the directory if it doesn't exist (best-effort) */
-            SDL_CreateDirectory(g_frontend.system_directory);
+    if (g_frontend.portable) {
+        /* Portable mode: keep all data alongside the binary's working
+         * directory. The system directory is "<cwd>/system". */
+        char *cwd = SDL_GetCurrentDirectory();
+        if (cwd) {
+            size_t cwd_len = strlen(cwd);
+            /* Strip a trailing separator (e.g., "/" on Unix roots). */
+            while (cwd_len > 1 &&
+                   (cwd[cwd_len - 1] == '/' || cwd[cwd_len - 1] == '\\'))
+                cwd_len--;
+            size_t total = cwd_len + 1 + strlen("system") + 1;
+            g_frontend.system_directory = malloc(total);
+            if (g_frontend.system_directory) {
+                snprintf(g_frontend.system_directory, total,
+                         "%.*s/system", (int)cwd_len, cwd);
+                fprintf(stderr, "System directory (portable): %s\n",
+                        g_frontend.system_directory);
+                /* Create the directory if it doesn't exist (best-effort) */
+                SDL_CreateDirectory(g_frontend.system_directory);
+            }
+            SDL_free(cwd);
         }
-        SDL_free((void *)pref);
+    } else {
+        /* Default: SDL_GetPrefPath returns a platform-appropriate user
+         * data directory. */
+        const char *pref = SDL_GetPrefPath("pureretro", "system");
+        if (pref) {
+            /* SDL_GetPrefPath already appends the app name ("system") and a
+             * trailing separator. Copy it into our own buffer. */
+            size_t len = strlen(pref);
+            g_frontend.system_directory = malloc(len + 1);
+            if (g_frontend.system_directory) {
+                memcpy(g_frontend.system_directory, pref, len + 1);
+                fprintf(stderr, "System directory: %s\n",
+                        g_frontend.system_directory);
+                /* Create the directory if it doesn't exist (best-effort) */
+                SDL_CreateDirectory(g_frontend.system_directory);
+            }
+            SDL_free((void *)pref);
+        }
     }
 
     if (!video_init("PureRetro", 640, 480)) {
