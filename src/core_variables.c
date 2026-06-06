@@ -6,7 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include "core_variables.h"
-#include "core_variables_internal.h"
 #include "core_variables_parse.h"
 #include "frontend.h"
 
@@ -271,16 +270,11 @@ bool core_variables_load(const char *path)
         if (kl == 0)
             continue;
 
-        if (variable_add(&g_frontend.disk_overrides,
-                         &g_frontend.disk_override_count,
-                         &g_frontend.disk_override_capacity,
-                         key, value)) {
+        if (variable_table_set(&g_frontend.disk_overrides, key, value))
             loaded++;
-        }
     }
     fclose(fp);
 
-    variables_sort(g_frontend.disk_overrides, g_frontend.disk_override_count);
     fprintf(stderr, "Loaded %zu variable override(s) from %s\n", loaded, path);
     return true;
 }
@@ -325,8 +319,8 @@ bool core_variables_save(const char *path)
      * (e.g. left over from a previous core version) are written without a
      * comment block to preserve the user's data. */
 
-    if (g_frontend.disk_override_count == 0 &&
-        g_frontend.variable_count == 0) {
+    if (variable_table_count(&g_frontend.disk_overrides) == 0 &&
+        variable_table_count(&g_frontend.variables) == 0) {
         /* Nothing to write. Avoid creating an empty file. */
         return true;
     }
@@ -346,16 +340,16 @@ bool core_variables_save(const char *path)
     size_t written = 0;
 
     /* First pass: every variable the core declared, with comment block. */
-    for (size_t i = 0; i < g_frontend.variable_count; ++i) {
-        const char *key = g_frontend.variables[i].key;
-        const char *raw = g_frontend.variables[i].value;
+    size_t var_count = variable_table_count(&g_frontend.variables);
+    for (size_t i = 0; i < var_count; ++i) {
+        const struct retro_variable *iv =
+            variable_table_at(&g_frontend.variables, i);
+        const char *key = iv->key;
+        const char *raw = iv->value;
 
-        const char *value = variables_find(g_frontend.disk_overrides,
-                                            g_frontend.disk_override_count,
-                                            key);
+        const char *value =
+            variable_table_get(&g_frontend.disk_overrides, key);
         if (!value) {
-            /* No persisted value (should not happen — SET_VARIABLES seeds
-             * one). Fall back to parsing the default on the fly. */
             static char def[256];
             if (core_var_parse_default(raw, def, sizeof(def)))
                 value = def;
@@ -371,13 +365,8 @@ bool core_variables_save(const char *path)
             fprintf(fp, "# %s\n", desc);
         write_choices_comment(fp, raw);
 
-        /* If a CLI --variable override is active for this key, the value
-         * the core actually saw this run differs from what we are about
-         * to persist. Make that explicit so users do not wrongly assume
-         * the CLI flag was saved. */
-        const char *cli = variables_find(g_frontend.cli_overrides,
-                                          g_frontend.cli_override_count,
-                                          key);
+        const char *cli =
+            variable_table_get(&g_frontend.cli_overrides, key);
         if (cli)
             fprintf(fp, "# (CLI override in effect this run: %s)\n", cli);
 
@@ -387,9 +376,11 @@ bool core_variables_save(const char *path)
 
     /* Second pass: stray disk overrides whose key the core did not declare. */
     bool stray_header = false;
-    for (size_t i = 0; i < g_frontend.disk_override_count; ++i) {
-        const char *key = g_frontend.disk_overrides[i].key;
-        if (variables_find(g_frontend.variables, g_frontend.variable_count, key))
+    size_t disk_count = variable_table_count(&g_frontend.disk_overrides);
+    for (size_t i = 0; i < disk_count; ++i) {
+        const struct retro_variable *iv =
+            variable_table_at(&g_frontend.disk_overrides, i);
+        if (variable_table_get(&g_frontend.variables, iv->key))
             continue;
 
         if (!stray_header) {
@@ -397,7 +388,7 @@ bool core_variables_save(const char *path)
                   "current core ---\n", fp);
             stray_header = true;
         }
-        fprintf(fp, "%s=%s\n", key, g_frontend.disk_overrides[i].value);
+        fprintf(fp, "%s=%s\n", iv->key, iv->value);
         written++;
     }
 
@@ -410,8 +401,7 @@ void core_variable_override(const char *key, const char *value)
 {
     if (!key || !value)
         return;
-    if (!variable_add(&g_frontend.cli_overrides, &g_frontend.cli_override_count,
-                      &g_frontend.cli_override_capacity, key, value)) {
+    if (!variable_table_set(&g_frontend.cli_overrides, key, value)) {
         fprintf(stderr, "Failed to store variable override: %s=%s\n", key, value);
     } else {
         fprintf(stderr, "Variable override (CLI): %s=%s\n", key, value);

@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <SDL3/SDL.h>
 #include "libretro.h"
+#include "core_variables.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -121,15 +122,9 @@ struct frontend_state
      * Lookup order in GET_VARIABLE: cli_overrides -> disk_overrides -> default.
      * cli_overrides come from --variable CLI flags and are never persisted.
      * disk_overrides are loaded from / saved to a per-core .opt file. */
-    struct retro_variable *variables;
-    size_t variable_count;
-    size_t variable_capacity;
-    struct retro_variable *disk_overrides;
-    size_t disk_override_count;
-    size_t disk_override_capacity;
-    struct retro_variable *cli_overrides;
-    size_t cli_override_count;
-    size_t cli_override_capacity;
+    struct variable_table variables;
+    struct variable_table disk_overrides;
+    struct variable_table cli_overrides;
 };
 
 extern struct frontend_state g_frontend;

@@ -12,7 +12,6 @@
 #include <SDL3/SDL.h>
 #include "core.h"
 #include "core_variables_parse.h"
-#include "core_variables_internal.h"
 #include "frontend.h"
 #include "video.h"
 #include "video_gl.h"
@@ -24,95 +23,6 @@ struct core_functions g_core;
 struct retro_system_av_info g_av_info;
 
 static SDL_SharedObject *g_core_handle = NULL;
-
-/* ------------------------------------------------------------------ */
-/* Variable management (SET_VARIABLES / GET_VARIABLE)                 */
-/* ------------------------------------------------------------------ */
-
-void variables_free(struct retro_variable **vars, size_t *count)
-{
-    if (!*vars)
-        return;
-    for (size_t i = 0; i < *count; ++i) {
-        free((char *)(*vars)[i].key);
-        free((char *)(*vars)[i].value);
-    }
-    free(*vars);
-    *vars = NULL;
-    *count = 0;
-}
-
-bool variable_add(struct retro_variable **vars, size_t *count,
-                  size_t *capacity, const char *key, const char *value)
-{
-    /* Check if key already exists: update in-place */
-    for (size_t i = 0; i < *count; ++i) {
-        if (strcmp((*vars)[i].key, key) == 0) {
-            size_t vl = strlen(value);
-            char *v = malloc(vl + 1);
-            if (!v)
-                return false;
-            memcpy(v, value, vl + 1);
-            free((char *)(*vars)[i].value);
-            (*vars)[i].value = v;
-            return true;
-        }
-    }
-
-    if (*count >= *capacity) {
-        size_t new_cap = *capacity ? *capacity * 2 : 16;
-        struct retro_variable *new_arr = realloc(*vars,
-                                                 new_cap * sizeof(struct retro_variable));
-        if (!new_arr)
-            return false;
-        *vars = new_arr;
-        *capacity = new_cap;
-    }
-
-    size_t kl = strlen(key);
-    size_t vl = strlen(value);
-    char *k = malloc(kl + 1);
-    char *v = malloc(vl + 1);
-    if (!k || !v) {
-        free(k);
-        free(v);
-        return false;
-    }
-    memcpy(k, key, kl + 1);
-    memcpy(v, value, vl + 1);
-
-    (*vars)[*count].key = k;
-    (*vars)[*count].value = v;
-    (*count)++;
-    return true;
-}
-
-static int variable_cmp(const void *a, const void *b)
-{
-    const struct retro_variable *va = (const struct retro_variable *)a;
-    const struct retro_variable *vb = (const struct retro_variable *)b;
-    return strcmp(va->key, vb->key);
-}
-
-void variables_sort(struct retro_variable *vars, size_t count)
-{
-    if (count > 1)
-        qsort(vars, count, sizeof(struct retro_variable), variable_cmp);
-}
-
-const char *variables_find(const struct retro_variable *vars, size_t count,
-                           const char *key)
-{
-    if (!vars || count == 0)
-        return NULL;
-
-    struct retro_variable target = { key, NULL };
-    const struct retro_variable *found =
-        (const struct retro_variable *)bsearch(&target, vars, count,
-                                                sizeof(struct retro_variable),
-                                                variable_cmp);
-    return found ? found->value : NULL;
-}
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                            */
@@ -249,12 +159,9 @@ void core_unload(void)
         g_frontend.rom_size = 0;
     }
 
-    variables_free(&g_frontend.variables, &g_frontend.variable_count);
-    g_frontend.variable_capacity = 0;
-    variables_free(&g_frontend.disk_overrides, &g_frontend.disk_override_count);
-    g_frontend.disk_override_capacity = 0;
-    variables_free(&g_frontend.cli_overrides, &g_frontend.cli_override_count);
-    g_frontend.cli_override_capacity = 0;
+    variable_table_clear(&g_frontend.variables);
+    variable_table_clear(&g_frontend.disk_overrides);
+    variable_table_clear(&g_frontend.cli_overrides);
 
     memset(&g_core, 0, sizeof(g_core));
 }
@@ -459,28 +366,17 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         struct retro_variable *var = (struct retro_variable *)data;
         if (!var->key)
             return false;
-        const char *override = variables_find(g_frontend.cli_overrides,
-                                               g_frontend.cli_override_count,
-                                               var->key);
-        if (!override) {
-            override = variables_find(g_frontend.disk_overrides,
-                                       g_frontend.disk_override_count,
-                                       var->key);
-        }
+
+        const char *override = variable_table_get(&g_frontend.cli_overrides,
+                                                  var->key);
+        if (!override)
+            override = variable_table_get(&g_frontend.disk_overrides, var->key);
         if (override) {
             var->value = override;
             return true;
         }
 
-        /* Fallback: parse the default on demand. This path is only reached
-         * if SET_VARIABLES failed to seed a default (e.g. malformed value
-         * string) or if the core queries an undeclared key. The returned
-         * pointer aliases a static buffer; it is overwritten by the next
-         * GET_VARIABLE call, which is acceptable since libretro cores read
-         * the value synchronously. */
-        const char *raw = variables_find(g_frontend.variables,
-                                          g_frontend.variable_count,
-                                          var->key);
+        const char *raw = variable_table_get(&g_frontend.variables, var->key);
         if (!raw)
             return false;
 
@@ -496,48 +392,34 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         if (!vars)
             return false;
 
-        /* Replace the entire variable table */
-        variables_free(&g_frontend.variables, &g_frontend.variable_count);
-        g_frontend.variable_capacity = 0;
+        variable_table_clear(&g_frontend.variables);
 
         bool ok = true;
         for (const struct retro_variable *v = vars; v && v->key; ++v) {
-            if (!variable_add(&g_frontend.variables, &g_frontend.variable_count,
-                              &g_frontend.variable_capacity, v->key, v->value)) {
+            if (!variable_table_set(&g_frontend.variables, v->key, v->value)) {
                 ok = false;
                 break;
             }
         }
-        variables_sort(g_frontend.variables, g_frontend.variable_count);
 
-        /* Seed disk_overrides with the parsed default for any newly declared
-         * key that does not already have a persisted value. This guarantees
-         * every option appears in the .opt file on the next save, making the
-         * file self-documenting. CLI overrides intentionally do NOT seed
-         * disk_overrides (so they remain transient). */
         size_t seeded = 0;
-        for (size_t i = 0; i < g_frontend.variable_count; ++i) {
-            const char *key = g_frontend.variables[i].key;
-            if (variables_find(g_frontend.disk_overrides,
-                               g_frontend.disk_override_count, key))
+        size_t total = variable_table_count(&g_frontend.variables);
+        for (size_t i = 0; i < total; ++i) {
+            const struct retro_variable *iv =
+                variable_table_at(&g_frontend.variables, i);
+            if (variable_table_get(&g_frontend.disk_overrides, iv->key))
                 continue;
 
             char def[256];
-            if (!core_var_parse_default(g_frontend.variables[i].value,
-                                     def, sizeof(def)))
+            if (!core_var_parse_default(iv->value, def, sizeof(def)))
                 continue;
-            if (variable_add(&g_frontend.disk_overrides,
-                             &g_frontend.disk_override_count,
-                             &g_frontend.disk_override_capacity,
-                             key, def))
+            if (variable_table_set(&g_frontend.disk_overrides, iv->key, def))
                 seeded++;
         }
-        if (seeded > 0)
-            variables_sort(g_frontend.disk_overrides,
-                           g_frontend.disk_override_count);
 
-        fprintf(stderr, "Core registered %zu variables (%zu seeded from defaults)\n",
-                g_frontend.variable_count, seeded);
+        fprintf(stderr,
+                "Core registered %zu variables (%zu seeded from defaults)\n",
+                total, seeded);
         return ok;
     }
 
