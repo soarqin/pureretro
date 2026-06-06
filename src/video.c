@@ -22,39 +22,20 @@ bool video_init(const char *title, unsigned width, unsigned height)
 {
     struct video_state *v = &g_frontend.video;
 
+    (void)title;
+    (void)width;
+    (void)height;
+
     memset(v, 0, sizeof(*v));
     v->renderer = VIDEO_RENDERER_SW;
     v->pixel_format = RETRO_PIXEL_FORMAT_0RGB1555; /* libretro default */
 
-    /* Set window flags based on the user's --render preference. The window
-     * must be created with the right flags for the renderer we'll use:
-     * SDL_WINDOW_OPENGL for OpenGL, SDL_WINDOW_VULKAN for Vulkan. */
-    SDL_WindowFlags window_flags = 0;
-    if (g_frontend.preferred_renderer == VIDEO_RENDERER_OPENGL) {
-        window_flags = SDL_WINDOW_OPENGL;
-        fprintf(stderr, "Creating window with SDL_WINDOW_OPENGL\n");
-    } else if (g_frontend.preferred_renderer == VIDEO_RENDERER_VULKAN) {
-        window_flags = SDL_WINDOW_VULKAN;
-        fprintf(stderr, "Creating window with SDL_WINDOW_VULKAN\n");
-    } else {
-        fprintf(stderr, "Creating window with no HW flags (software or auto-detect)\n");
-    }
+    /* The window is created lazily when the core selects a renderer via
+     * SET_HW_RENDER (hardware cores) or after core_init returns
+     * (software-only cores). This ensures the window flags match the
+     * renderer the core actually wants, not the user's --render hint. */
 
-    v->window = SDL_CreateWindow(title, (int)width, (int)height, window_flags);
-    if (!v->window) {
-        fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
-        return false;
-    }
-
-    /* Start with the software renderer. */
-    if (!video_sw_init(v->window, &v->sw)) {
-        fprintf(stderr, "Failed to initialize software renderer\n");
-        SDL_DestroyWindow(v->window);
-        v->window = NULL;
-        return false;
-    }
-
-    fprintf(stderr, "Video initialized: default renderer is %s (will switch when core calls SET_HW_RENDER)\n",
+    fprintf(stderr, "Video initialized: default renderer is %s (window will be created when core selects renderer)\n",
             renderer_name(v->renderer));
 
     return true;
@@ -177,6 +158,11 @@ bool video_set_hw_render(struct retro_hw_render_callback *hw)
         /* Core changed its mind; stay software. */
         v->hw_render_enabled = false;
         v->renderer = VIDEO_RENDERER_SW;
+        if (!v->window) {
+            v->window = SDL_CreateWindow("PureRetro", 640, 480, 0);
+            if (!v->window)
+                return false;
+        }
         if (!video_sw_init(v->window, &v->sw))
             return false;
         fprintf(stderr, "Active renderer: sw (software)\n");
@@ -187,6 +173,14 @@ bool video_set_hw_render(struct retro_hw_render_callback *hw)
     case RETRO_HW_CONTEXT_OPENGL_CORE:
     case RETRO_HW_CONTEXT_OPENGLES3:
     case RETRO_HW_CONTEXT_OPENGLES_VERSION: {
+        if (!v->window) {
+            v->window = SDL_CreateWindow("PureRetro", 640, 480, SDL_WINDOW_OPENGL);
+            if (!v->window) {
+                fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
+                return false;
+            }
+            fprintf(stderr, "Created window with SDL_WINDOW_OPENGL for HW renderer\n");
+        }
         if (!video_gl_init(v->window, hw, &v->gl)) {
             video_sw_init(v->window, &v->sw);
             return false;
@@ -207,6 +201,16 @@ bool video_set_hw_render(struct retro_hw_render_callback *hw)
 
 #ifdef PURERETRO_VULKAN_ENABLED
     case RETRO_HW_CONTEXT_VULKAN:
+        if (!v->window) {
+            v->window = SDL_CreateWindow("PureRetro", 640, 480, SDL_WINDOW_VULKAN);
+            if (!v->window) {
+                fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
+                v->renderer = VIDEO_RENDERER_SW;
+                v->hw_render_enabled = false;
+                return false;
+            }
+            fprintf(stderr, "Created window with SDL_WINDOW_VULKAN for HW renderer\n");
+        }
         if (!video_vk_init(v->window, hw, &v->vk)) {
             /* Restore state so the core can fall back to software/GL */
             v->renderer = VIDEO_RENDERER_SW;
