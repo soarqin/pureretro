@@ -2,7 +2,9 @@
  * PureRetro — Video subsystem dispatcher
  *
  * Creates the SDL window and dispatches rendering to the active
- * backend (software, OpenGL, or Vulkan).
+ * backend through the video_backend vtable. Backends are registered
+ * once in the g_backends[] array; backend selection walks that array
+ * asking each backend's match_hw_context() predicate.
  */
 
 #include <stdio.h>
@@ -10,6 +12,7 @@
 #include <string.h>
 #include <SDL3/SDL.h>
 #include "video.h"
+#include "video_backend.h"
 #include "video_sw.h"
 #include "video_gl.h"
 #include "frontend.h"
@@ -17,6 +20,59 @@
 #ifdef PURERETRO_VULKAN_ENABLED
 #include "video_vk.h"
 #endif
+
+/* Backend registry. Order matters: the first backend whose
+ * match_hw_context() returns true for the requested context type
+ * wins. sw_backend matches RETRO_HW_CONTEXT_NONE exclusively. */
+static const struct video_backend *const g_backends[] = {
+    &sw_backend,
+    &gl_backend,
+#ifdef PURERETRO_VULKAN_ENABLED
+    &vk_backend,
+#endif
+};
+
+static const size_t g_backend_count =
+    sizeof(g_backends) / sizeof(g_backends[0]);
+
+static const struct video_backend *find_backend(enum retro_hw_context_type type)
+{
+    for (size_t i = 0; i < g_backend_count; ++i) {
+        if (g_backends[i]->match_hw_context(type))
+            return g_backends[i];
+    }
+    return NULL;
+}
+
+/* Mirror the new opaque pointer into the legacy concrete-typed
+ * fields on video_state so external callers in core.c / main.c
+ * continue to work during the A-1 migration. Task 5 deletes
+ * both this helper and the legacy fields. */
+static void sync_legacy_fields(struct video_state *v)
+{
+    v->sw = NULL;
+    v->gl = NULL;
+#ifdef PURERETRO_VULKAN_ENABLED
+    v->vk = NULL;
+#endif
+    if (!v->backend)
+        return;
+    switch (v->backend->id) {
+    case VIDEO_RENDERER_SW:
+        v->sw = (struct video_sw_context *)v->backend_ctx;
+        break;
+    case VIDEO_RENDERER_OPENGL:
+        v->gl = (struct video_gl_context *)v->backend_ctx;
+        break;
+#ifdef PURERETRO_VULKAN_ENABLED
+    case VIDEO_RENDERER_VULKAN:
+        v->vk = (struct video_vk_context *)v->backend_ctx;
+        break;
+#endif
+    default:
+        break;
+    }
+}
 
 bool video_init(const char *title, unsigned width, unsigned height)
 {
@@ -28,14 +84,11 @@ bool video_init(const char *title, unsigned width, unsigned height)
 
     memset(v, 0, sizeof(*v));
     v->renderer = VIDEO_RENDERER_SW;
-    v->pixel_format = RETRO_PIXEL_FORMAT_0RGB1555; /* libretro default */
+    v->pixel_format = RETRO_PIXEL_FORMAT_0RGB1555;
 
-    /* The window is created lazily when the core selects a renderer via
-     * SET_HW_RENDER (hardware cores) or after core_init returns
-     * (software-only cores). This ensures the window flags match the
-     * renderer the core actually wants, not the user's --render hint. */
-
-    fprintf(stderr, "Video initialized: default renderer is %s (window will be created when core selects renderer)\n",
+    fprintf(stderr,
+            "Video initialized: default renderer is %s "
+            "(window will be created when core selects renderer)\n",
             renderer_name(v->renderer));
 
     return true;
@@ -45,22 +98,12 @@ void video_shutdown(void)
 {
     struct video_state *v = &g_frontend.video;
 
-    if (v->sw) {
-        video_sw_destroy(v->sw);
-        v->sw = NULL;
+    if (v->backend && v->backend_ctx) {
+        v->backend->destroy(v->backend_ctx);
+        v->backend_ctx = NULL;
+        v->backend = NULL;
+        sync_legacy_fields(v);
     }
-
-    if (v->gl) {
-        video_gl_destroy(v->gl);
-        v->gl = NULL;
-    }
-
-#ifdef PURERETRO_VULKAN_ENABLED
-    if (v->vk) {
-        video_vk_destroy(v->vk);
-        v->vk = NULL;
-    }
-#endif
 
     if (v->window) {
         SDL_DestroyWindow(v->window);
@@ -72,237 +115,144 @@ void video_present(const void *data, unsigned width, unsigned height, size_t pit
 {
     struct video_state *v = &g_frontend.video;
 
-    if (v->hw_render_enabled) {
-        switch (v->renderer) {
-        case VIDEO_RENDERER_OPENGL:
-            if (v->gl)
-                video_gl_present(v->gl, width, height);
-            break;
-#ifdef PURERETRO_VULKAN_ENABLED
-        case VIDEO_RENDERER_VULKAN:
-            if (v->vk)
-                video_vk_present(v->vk, width, height);
-            break;
-#endif
-        default:
-            break;
-        }
+    if (!v->backend || !v->backend_ctx)
         return;
-    }
 
-    if (v->sw) {
-        video_sw_present(v->sw, data, width, height, pitch, v->pixel_format);
-    }
+    v->backend->present(v->backend_ctx, data, width, height, pitch,
+                        v->pixel_format);
 }
 
 void video_process_event(const SDL_Event *event)
 {
     struct video_state *v = &g_frontend.video;
 
-    if (event->type == SDL_EVENT_WINDOW_RESIZED ||
-        event->type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) {
-        unsigned new_w = (unsigned)event->window.data1;
-        unsigned new_h = (unsigned)event->window.data2;
-
-        if (v->hw_render_enabled && v->renderer == VIDEO_RENDERER_OPENGL && v->gl) {
-            if (!video_gl_resize(v->gl, new_w, new_h)) {
-                fprintf(stderr, "Failed to resize GL FBO after window resize\n");
-            }
-        }
-
-#ifdef PURERETRO_VULKAN_ENABLED
-        if (v->hw_render_enabled && v->renderer == VIDEO_RENDERER_VULKAN && v->vk) {
-            if (!video_vk_resize(v->vk, v->window)) {
-                fprintf(stderr, "Failed to recreate Vulkan swapchain after resize\n");
-                g_frontend.running = false;
-            }
-        }
-#endif
+    if (event->type != SDL_EVENT_WINDOW_RESIZED &&
+        event->type != SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) {
+        return;
     }
-}
 
-static const char *hw_context_name(enum retro_hw_context_type t)
-{
-    switch (t) {
-    case RETRO_HW_CONTEXT_NONE:             return "none";
-    case RETRO_HW_CONTEXT_OPENGL:           return "opengl";
-    case RETRO_HW_CONTEXT_OPENGLES2:        return "opengles2";
-    case RETRO_HW_CONTEXT_OPENGL_CORE:      return "opengl-core";
-    case RETRO_HW_CONTEXT_OPENGLES3:        return "opengles3";
-    case RETRO_HW_CONTEXT_OPENGLES_VERSION: return "opengles-version";
-    case RETRO_HW_CONTEXT_VULKAN:           return "vulkan";
-    case RETRO_HW_CONTEXT_D3D9:             return "d3d9";
-    case RETRO_HW_CONTEXT_D3D10:            return "d3d10";
-    case RETRO_HW_CONTEXT_D3D11:            return "d3d11";
-    case RETRO_HW_CONTEXT_D3D12:            return "d3d12";
-    case RETRO_HW_CONTEXT_DUMMY:            return "dummy";
+    if (!v->hw_render_enabled || !v->backend || !v->backend_ctx)
+        return;
+
+    unsigned new_w = (unsigned)event->window.data1;
+    unsigned new_h = (unsigned)event->window.data2;
+
+    if (!v->backend->resize(v->backend_ctx, v->window, new_w, new_h)) {
+        fprintf(stderr, "Backend %s failed to resize after window resize\n",
+                v->backend->name);
+        if (v->backend->id == VIDEO_RENDERER_VULKAN)
+            g_frontend.running = false;
     }
-    return "?";
 }
 
 bool video_set_hw_render(struct retro_hw_render_callback *hw)
 {
     struct video_state *v = &g_frontend.video;
+    const struct video_backend *new_backend = find_backend(hw->context_type);
 
-    fprintf(stderr, "Core requested HW context: %s\n", hw_context_name(hw->context_type));
+    fprintf(stderr, "Core requested HW context: type=%d\n",
+            (int)hw->context_type);
     g_frontend.hw_render_requested = true;
 
-    /* CONTEXT_NONE means "stay on the software path". Handle it first so we
-     * don't tear down and immediately recreate the existing sw renderer. */
-    if (hw->context_type == RETRO_HW_CONTEXT_NONE) {
-        v->hw_render_enabled = false;
-        v->renderer = VIDEO_RENDERER_SW;
-        if (!v->window) {
-            v->window = SDL_CreateWindow("PureRetro", 640, 480, 0);
-            if (!v->window)
-                return false;
-        }
-        if (!v->sw && !video_sw_init(v->window, &v->sw))
-            return false;
-        fprintf(stderr, "Active renderer: sw (software)\n");
-        return true;
-    }
-
-    /* Switching to a hardware backend: drop the software renderer first. */
-    if (v->sw) {
-        video_sw_destroy(v->sw);
-        v->sw = NULL;
-    }
-
-    switch (hw->context_type) {
-    case RETRO_HW_CONTEXT_NONE:
-        /* Already handled above. */
-        return true;
-
-    case RETRO_HW_CONTEXT_OPENGL:
-    case RETRO_HW_CONTEXT_OPENGLES2:
-    case RETRO_HW_CONTEXT_OPENGL_CORE:
-    case RETRO_HW_CONTEXT_OPENGLES3:
-    case RETRO_HW_CONTEXT_OPENGLES_VERSION: {
-        if (!v->window) {
-            v->window = SDL_CreateWindow("PureRetro", 640, 480, SDL_WINDOW_OPENGL);
-            if (!v->window) {
-                fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
-                return false;
-            }
-            fprintf(stderr, "Created window with SDL_WINDOW_OPENGL for HW renderer\n");
-        }
-        if (!video_gl_init(v->window, hw, &v->gl)) {
-            video_sw_init(v->window, &v->sw);
-            return false;
-        }
-        v->renderer = VIDEO_RENDERER_OPENGL;
-        v->hw_render_enabled = true;
-        hw->get_current_framebuffer = video_get_current_framebuffer;
-        hw->get_proc_address = video_get_proc_address;
-        memcpy(&v->hw, hw, sizeof(v->hw));
-        fprintf(stderr, "Active renderer: gl (opengl)\n");
-        if (g_frontend.preferred_renderer != VIDEO_RENDERER_NONE &&
-            g_frontend.preferred_renderer != VIDEO_RENDERER_OPENGL) {
-            fprintf(stderr, "  warning: user preferred '%s' but core chose 'gl'\n",
+    if (!new_backend) {
+        fprintf(stderr, "Unsupported HW context type: %d\n",
+                (int)hw->context_type);
+        if (g_frontend.preferred_renderer != VIDEO_RENDERER_NONE) {
+            fprintf(stderr,
+                    "  user preferred '%s' but core requested an "
+                    "unsupported context\n",
                     renderer_name(g_frontend.preferred_renderer));
         }
-        return true;
-    }
-
-#ifdef PURERETRO_VULKAN_ENABLED
-    case RETRO_HW_CONTEXT_VULKAN:
-        if (!v->window) {
-            v->window = SDL_CreateWindow("PureRetro", 640, 480, SDL_WINDOW_VULKAN);
-            if (!v->window) {
-                fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
-                v->renderer = VIDEO_RENDERER_SW;
-                v->hw_render_enabled = false;
-                return false;
-            }
-            fprintf(stderr, "Created window with SDL_WINDOW_VULKAN for HW renderer\n");
-        }
-        if (!video_vk_init(v->window, hw, &v->vk)) {
-            /* Restore state so the core can fall back to software/GL */
-            v->renderer = VIDEO_RENDERER_SW;
-            v->hw_render_enabled = false;
-            video_sw_init(v->window, &v->sw);
-            return false;
-        }
-        v->renderer = VIDEO_RENDERER_VULKAN;
-        v->hw_render_enabled = true;
-        hw->get_current_framebuffer = video_get_current_framebuffer;
-        hw->get_proc_address = video_get_proc_address;
-        memcpy(&v->hw, hw, sizeof(v->hw));
-        fprintf(stderr, "Active renderer: vk (vulkan)\n");
-        if (g_frontend.preferred_renderer != VIDEO_RENDERER_NONE &&
-            g_frontend.preferred_renderer != VIDEO_RENDERER_VULKAN) {
-            fprintf(stderr, "  warning: user preferred '%s' but core chose 'vk'\n",
-                    renderer_name(g_frontend.preferred_renderer));
-        }
-        return true;
-#endif
-
-    default:
-        fprintf(stderr, "Unsupported HW context type: %s (%d)\n",
-                hw_context_name(hw->context_type), (int)hw->context_type);
-        if (g_frontend.preferred_renderer != VIDEO_RENDERER_NONE)
-            fprintf(stderr, "  user preferred '%s' but core requested an unsupported context\n",
-                    renderer_name(g_frontend.preferred_renderer));
         return false;
     }
+
+    /* If the same backend is already active we're done. The NONE-with-sw
+     * case used to be the special-cased early return; that path is now
+     * just "new_backend == current_backend". */
+    if (v->backend == new_backend && v->backend_ctx) {
+        v->renderer = new_backend->id;
+        v->hw_render_enabled = (new_backend->id != VIDEO_RENDERER_SW);
+        return true;
+    }
+
+    /* Tear down any active backend before bringing the new one up. */
+    if (v->backend && v->backend_ctx) {
+        v->backend->destroy(v->backend_ctx);
+        v->backend_ctx = NULL;
+        v->backend = NULL;
+    }
+
+    if (!v->window) {
+        SDL_WindowFlags flags = new_backend->window_flags();
+        v->window = SDL_CreateWindow("PureRetro", 640, 480, flags);
+        if (!v->window) {
+            fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
+            return false;
+        }
+        fprintf(stderr, "Created window with flags 0x%llx for renderer %s\n",
+                (unsigned long long)flags, new_backend->name);
+    }
+
+    void *ctx = NULL;
+    struct retro_hw_render_callback *hw_arg =
+        (new_backend->id == VIDEO_RENDERER_SW) ? NULL : hw;
+    if (!new_backend->init(v->window, hw_arg, &ctx)) {
+        fprintf(stderr, "Backend %s init failed; falling back to software\n",
+                new_backend->name);
+        if (sw_backend.init(v->window, NULL, &ctx)) {
+            v->backend = &sw_backend;
+            v->backend_ctx = ctx;
+            v->renderer = VIDEO_RENDERER_SW;
+            v->hw_render_enabled = false;
+            sync_legacy_fields(v);
+        }
+        return false;
+    }
+
+    v->backend = new_backend;
+    v->backend_ctx = ctx;
+    v->renderer = new_backend->id;
+    v->hw_render_enabled = (new_backend->id != VIDEO_RENDERER_SW);
+
+    if (v->hw_render_enabled) {
+        hw->get_current_framebuffer = video_get_current_framebuffer;
+        hw->get_proc_address = video_get_proc_address;
+        memcpy(&v->hw, hw, sizeof(v->hw));
+    }
+
+    sync_legacy_fields(v);
+
+    fprintf(stderr, "Active renderer: %s\n", new_backend->name);
+    if (g_frontend.preferred_renderer != VIDEO_RENDERER_NONE &&
+        g_frontend.preferred_renderer != new_backend->id) {
+        fprintf(stderr, "  warning: user preferred '%s' but core chose '%s'\n",
+                renderer_name(g_frontend.preferred_renderer),
+                new_backend->name);
+    }
+    return true;
 }
 
 uintptr_t video_get_current_framebuffer(void)
 {
     struct video_state *v = &g_frontend.video;
-    uintptr_t fb = 0;
-
-    switch (v->renderer) {
-    case VIDEO_RENDERER_OPENGL:
-        if (v->gl)
-            fb = video_gl_get_current_framebuffer(v->gl);
-        break;
-#ifdef PURERETRO_VULKAN_ENABLED
-    case VIDEO_RENDERER_VULKAN:
-        /* Vulkan uses image indices rather than a single framebuffer handle. */
-        break;
-#endif
-    default:
-        break;
-    }
-
-    return fb;
+    if (!v->backend || !v->backend_ctx)
+        return 0;
+    return v->backend->get_current_framebuffer(v->backend_ctx);
 }
 
 retro_proc_address_t video_get_proc_address(const char *sym)
 {
     struct video_state *v = &g_frontend.video;
-
-    switch (v->renderer) {
-    case VIDEO_RENDERER_OPENGL:
-        if (v->gl)
-            return video_gl_get_proc_address(v->gl, sym);
-        break;
-#ifdef PURERETRO_VULKAN_ENABLED
-    case VIDEO_RENDERER_VULKAN:
-        if (v->vk)
-            return video_vk_get_proc_address(v->vk, sym);
-        break;
-#endif
-    default:
-        break;
-    }
-
-    return NULL;
+    if (!v->backend || !v->backend_ctx)
+        return NULL;
+    return v->backend->get_proc_address(v->backend_ctx, sym);
 }
 
-bool video_negotiate_hw_context(const struct retro_hw_render_context_negotiation_interface *iface)
+bool video_negotiate_hw_context(
+    const struct retro_hw_render_context_negotiation_interface *iface)
 {
     struct video_state *v = &g_frontend.video;
-
-    if (!iface)
+    if (!iface || !v->backend || !v->backend_ctx)
         return false;
-
-#ifdef PURERETRO_VULKAN_ENABLED
-    if (v->renderer == VIDEO_RENDERER_VULKAN && v->vk)
-        return video_vk_negotiate_device(v->vk, iface);
-#endif
-
-    return false;
+    return v->backend->negotiate_device(v->backend_ctx, iface);
 }

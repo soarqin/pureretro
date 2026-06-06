@@ -39,12 +39,21 @@ enum video_renderer
 struct video_sw_context;
 struct video_gl_context;
 struct video_vk_context;
+struct video_backend;
 
 /* Video state shared across renderers */
 struct video_state
 {
     SDL_Window *window;
     enum video_renderer renderer;
+
+    /* Active backend dispatched through the video_backend vtable.
+     * Once set by video_set_hw_render, all per-frame operations go
+     * via backend->method(backend_ctx, ...). The old sw/gl/vk
+     * pointers below are kept in sync during the A-1 migration
+     * and removed in the final task. */
+    const struct video_backend *backend;
+    void *backend_ctx;
 
     /* Software renderer context */
     struct video_sw_context *sw;
