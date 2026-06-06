@@ -836,12 +836,15 @@ bool video_vk_negotiate_device(struct video_vk_context *ctx,
     struct retro_vulkan_context retro_ctx;
     memset(&retro_ctx, 0, sizeof(retro_ctx));
 
+    /* PPSSPP's vkCreateDevice_libretro dereferences required_features; never pass NULL. */
+    VkPhysicalDeviceFeatures required_features = {0};
+
     bool ok = vk_iface->create_device(&retro_ctx,
                                        ctx->instance,
                                        ctx->physical_device,
                                        ctx->surface,
                                        ctx->get_instance_proc_addr,
-                                       NULL, 0, NULL, 0, NULL);
+                                       NULL, 0, NULL, 0, &required_features);
     if (!ok) {
         fprintf(stderr, "video_vk_negotiate_device: create_device failed\n");
         return false;
