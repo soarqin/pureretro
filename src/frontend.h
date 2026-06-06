@@ -35,10 +35,7 @@ enum video_renderer
     VIDEO_RENDERER_VULKAN,
 };
 
-/* Forward declarations for renderer-specific contexts */
-struct video_sw_context;
-struct video_gl_context;
-struct video_vk_context;
+struct video_backend;
 
 /* Video state shared across renderers */
 struct video_state
@@ -46,14 +43,11 @@ struct video_state
     SDL_Window *window;
     enum video_renderer renderer;
 
-    /* Software renderer context */
-    struct video_sw_context *sw;
-
-    /* OpenGL renderer context */
-    struct video_gl_context *gl;
-
-    /* Vulkan renderer context */
-    struct video_vk_context *vk;
+    /* Active backend dispatched through the video_backend vtable.
+     * Once set by video_set_hw_render, all per-frame operations go
+     * via backend->method(backend_ctx, ...). */
+    const struct video_backend *backend;
+    void *backend_ctx;
 
     /* Current frame dimensions */
     unsigned frame_width;

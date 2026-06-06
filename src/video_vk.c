@@ -11,6 +11,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
 #include "video_vk.h"
+#include "video_backend.h"
 #include "frontend.h"
 #include "core.h"
 
@@ -877,6 +878,99 @@ bool video_vk_negotiate_device(struct video_vk_context *ctx,
             (void *)retro_ctx.device, (void *)retro_ctx.queue);
     return true;
 }
+
+/* ----- video_backend vtable adapters ----- */
+
+static bool vb_vk_match(enum retro_hw_context_type type)
+{
+    return type == RETRO_HW_CONTEXT_VULKAN;
+}
+
+static SDL_WindowFlags vb_vk_window_flags(void)
+{
+    return SDL_WINDOW_VULKAN;
+}
+
+static bool vb_vk_init(SDL_Window *window, struct retro_hw_render_callback *hw,
+                       void **out_ctx)
+{
+    struct video_vk_context *ctx = NULL;
+    if (!video_vk_init(window, hw, &ctx))
+        return false;
+    *out_ctx = ctx;
+    return true;
+}
+
+static void vb_vk_destroy(void *ctx)
+{
+    video_vk_destroy((struct video_vk_context *)ctx);
+}
+
+static void vb_vk_present(void *ctx, const void *data, unsigned width,
+                          unsigned height, size_t pitch,
+                          enum retro_pixel_format fmt)
+{
+    (void)data;
+    (void)pitch;
+    (void)fmt;
+    video_vk_present((struct video_vk_context *)ctx, width, height);
+}
+
+static bool vb_vk_resize(void *ctx, SDL_Window *window,
+                         unsigned width, unsigned height)
+{
+    (void)width;
+    (void)height;
+    return video_vk_resize((struct video_vk_context *)ctx, window);
+}
+
+static uintptr_t vb_vk_get_current_framebuffer(void *ctx)
+{
+    (void)ctx;
+    return 0;
+}
+
+static retro_proc_address_t vb_vk_get_proc_address(void *ctx, const char *sym)
+{
+    return video_vk_get_proc_address((struct video_vk_context *)ctx, sym);
+}
+
+static bool vb_vk_negotiate_device(void *ctx,
+    const struct retro_hw_render_context_negotiation_interface *iface)
+{
+    return video_vk_negotiate_device((struct video_vk_context *)ctx, iface);
+}
+
+static bool vb_vk_get_hw_render_interface(void *ctx,
+    const struct retro_hw_render_interface **out_iface)
+{
+    struct video_vk_context *vk = (struct video_vk_context *)ctx;
+    if (!vk || !out_iface)
+        return false;
+    *out_iface = (const struct retro_hw_render_interface *)&vk->hw_if;
+    return true;
+}
+
+static void vb_vk_context_destroy(void *ctx)
+{
+    (void)ctx;
+}
+
+const struct video_backend vk_backend = {
+    .name                    = "vk",
+    .id                      = VIDEO_RENDERER_VULKAN,
+    .match_hw_context        = vb_vk_match,
+    .window_flags            = vb_vk_window_flags,
+    .init                    = vb_vk_init,
+    .destroy                 = vb_vk_destroy,
+    .present                 = vb_vk_present,
+    .resize                  = vb_vk_resize,
+    .get_current_framebuffer = vb_vk_get_current_framebuffer,
+    .get_proc_address        = vb_vk_get_proc_address,
+    .negotiate_device        = vb_vk_negotiate_device,
+    .get_hw_render_interface = vb_vk_get_hw_render_interface,
+    .context_destroy         = vb_vk_context_destroy,
+};
 
 #else /* PURERETRO_VULKAN_ENABLED */
 

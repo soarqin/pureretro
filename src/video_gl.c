@@ -10,6 +10,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_opengl.h>
 #include "video_gl.h"
+#include "video_backend.h"
 #include "core.h"
 
 /* APIENTRY may not be defined on all platforms */
@@ -388,3 +389,103 @@ retro_proc_address_t video_gl_get_proc_address(struct video_gl_context *ctx,
 
     return ctx->get_proc_address(sym);
 }
+
+/* ----- video_backend vtable adapters ----- */
+
+static bool vb_gl_match(enum retro_hw_context_type type)
+{
+    switch (type) {
+    case RETRO_HW_CONTEXT_OPENGL:
+    case RETRO_HW_CONTEXT_OPENGLES2:
+    case RETRO_HW_CONTEXT_OPENGL_CORE:
+    case RETRO_HW_CONTEXT_OPENGLES3:
+    case RETRO_HW_CONTEXT_OPENGLES_VERSION:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static SDL_WindowFlags vb_gl_window_flags(void)
+{
+    return SDL_WINDOW_OPENGL;
+}
+
+static bool vb_gl_init(SDL_Window *window, struct retro_hw_render_callback *hw,
+                       void **out_ctx)
+{
+    struct video_gl_context *ctx = NULL;
+    if (!video_gl_init(window, hw, &ctx))
+        return false;
+    *out_ctx = ctx;
+    return true;
+}
+
+static void vb_gl_destroy(void *ctx)
+{
+    video_gl_destroy((struct video_gl_context *)ctx);
+}
+
+static void vb_gl_present(void *ctx, const void *data, unsigned width,
+                          unsigned height, size_t pitch,
+                          enum retro_pixel_format fmt)
+{
+    (void)data;
+    (void)pitch;
+    (void)fmt;
+    video_gl_present((struct video_gl_context *)ctx, width, height);
+}
+
+static bool vb_gl_resize(void *ctx, SDL_Window *window,
+                         unsigned width, unsigned height)
+{
+    (void)window;
+    return video_gl_resize((struct video_gl_context *)ctx, width, height);
+}
+
+static uintptr_t vb_gl_get_current_framebuffer(void *ctx)
+{
+    return video_gl_get_current_framebuffer((struct video_gl_context *)ctx);
+}
+
+static retro_proc_address_t vb_gl_get_proc_address(void *ctx, const char *sym)
+{
+    return video_gl_get_proc_address((struct video_gl_context *)ctx, sym);
+}
+
+static bool vb_gl_negotiate_device(void *ctx,
+    const struct retro_hw_render_context_negotiation_interface *iface)
+{
+    (void)ctx;
+    (void)iface;
+    return false;
+}
+
+static bool vb_gl_get_hw_render_interface(void *ctx,
+    const struct retro_hw_render_interface **out_iface)
+{
+    (void)ctx;
+    (void)out_iface;
+    return false;
+}
+
+static void vb_gl_context_destroy(void *ctx)
+{
+    video_gl_context_destroy((struct video_gl_context *)ctx);
+}
+
+const struct video_backend gl_backend = {
+    .name                    = "gl",
+    .id                      = VIDEO_RENDERER_OPENGL,
+    .match_hw_context        = vb_gl_match,
+    .window_flags            = vb_gl_window_flags,
+    .init                    = vb_gl_init,
+    .destroy                 = vb_gl_destroy,
+    .present                 = vb_gl_present,
+    .resize                  = vb_gl_resize,
+    .get_current_framebuffer = vb_gl_get_current_framebuffer,
+    .get_proc_address        = vb_gl_get_proc_address,
+    .negotiate_device        = vb_gl_negotiate_device,
+    .get_hw_render_interface = vb_gl_get_hw_render_interface,
+    .context_destroy         = vb_gl_context_destroy,
+};

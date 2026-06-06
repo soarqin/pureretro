@@ -47,7 +47,7 @@ This separation keeps each renderer self-contained and easier to reason about in
 
 ```
 main            ->  core, video, audio, input, frontend
-video           ->  video_sw, video_gl, video_vk (runtime dispatch)
+video           ->  video_backend (vtable) -> video_sw, video_gl, video_vk
 core            ->  libretro.h, frontend, core_variables
 core_variables  ->  libretro.h, frontend, core_variables_parse
 audio           ->  SDL3

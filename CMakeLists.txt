@@ -51,6 +51,7 @@ set(PURERETRO_HEADERS
     src/core_variables.h
     src/core_variables_parse.h
     src/video.h
+    src/video_backend.h
     src/video_sw.h
     src/video_gl.h
     src/audio.h
