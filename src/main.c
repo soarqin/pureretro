@@ -82,8 +82,9 @@ static bool parse_args(int argc, char *argv[])
                 print_usage(argv[0]);
                 return false;
             }
+            ++i;
             char *endptr = NULL;
-            long val = strtol(argv[++i], &endptr, 10);
+            long val = strtol(argv[i], &endptr, 10);
             if (*endptr != '\0' || val < 1 || val > 16) {
                 fprintf(stderr, "Invalid scale: '%s' (expected 1-16)\n", argv[i]);
                 print_usage(argv[0]);
@@ -100,7 +101,8 @@ static bool parse_args(int argc, char *argv[])
                 print_usage(argv[0]);
                 return false;
             }
-            if (!parse_render(argv[++i], &g_frontend.preferred_renderer)) {
+            ++i;
+            if (!parse_render(argv[i], &g_frontend.preferred_renderer)) {
                 fprintf(stderr, "Invalid renderer: '%s' (expected vk, gl, or sw)\n",
                         argv[i]);
                 print_usage(argv[0]);
@@ -114,20 +116,25 @@ static bool parse_args(int argc, char *argv[])
                 print_usage(argv[0]);
                 return false;
             }
-            const char *arg = argv[++i];
+            ++i;
+            const char *arg = argv[i];
             const char *eq = strchr(arg, '=');
             if (!eq) {
                 fprintf(stderr, "Invalid variable syntax: '%s' (expected key=value)\n", arg);
                 print_usage(argv[0]);
                 return false;
             }
-            char *key = malloc((size_t)(eq - arg + 1));
-            if (!key)
+            size_t key_len = (size_t)(eq - arg);
+            char key[256];
+            if (key_len >= sizeof(key)) {
+                fprintf(stderr, "Variable key too long (max %zu): '%.*s...'\n",
+                        sizeof(key) - 1, (int)(sizeof(key) - 1), arg);
+                print_usage(argv[0]);
                 return false;
-            memcpy(key, arg, (size_t)(eq - arg));
-            key[eq - arg] = '\0';
+            }
+            memcpy(key, arg, key_len);
+            key[key_len] = '\0';
             core_variable_override(key, eq + 1);
-            free(key);
         } else {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             print_usage(argv[0]);

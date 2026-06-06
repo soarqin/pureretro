@@ -20,7 +20,6 @@ struct video_sw_context
 {
     SDL_Renderer *renderer;
     SDL_Texture  *texture;
-    SDL_Surface  *convert_surface; /* For pixel format conversion */
 
     /* Cached texture properties (SDL_Texture is opaque in SDL3) */
     int          texture_width;

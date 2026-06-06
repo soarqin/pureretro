@@ -32,6 +32,16 @@ struct video_gl_context
     /* Cached proc addresses */
     retro_hw_get_proc_address_t get_proc_address;
 
+    /* Cached hot-path GL function pointers, resolved once at init time.
+     * Typed as the generic libretro proc address to avoid leaking GL
+     * typedefs into this header; the implementation casts back to the
+     * correct PFNGL*PROC types. */
+    retro_proc_address_t fn_bind_framebuffer;
+    retro_proc_address_t fn_blit_framebuffer;
+    retro_proc_address_t fn_clear_color;
+    retro_proc_address_t fn_clear;
+    retro_proc_address_t fn_viewport;
+
     bool cache_context;          /* copied from hw->cache_context */
     bool bottom_left_origin;     /* copied from hw->bottom_left_origin */
 };

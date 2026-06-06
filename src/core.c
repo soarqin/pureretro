@@ -392,6 +392,17 @@ bool core_variables_save(const char *path)
         if (desc[0])
             fprintf(fp, "# %s\n", desc);
         write_choices_comment(fp, raw);
+
+        /* If a CLI --variable override is active for this key, the value
+         * the core actually saw this run differs from what we are about
+         * to persist. Make that explicit so users do not wrongly assume
+         * the CLI flag was saved. */
+        const char *cli = variables_find(g_frontend.cli_overrides,
+                                          g_frontend.cli_override_count,
+                                          key);
+        if (cli)
+            fprintf(fp, "# (CLI override in effect this run: %s)\n", cli);
+
         fprintf(fp, "%s=%s\n", key, value);
         written++;
     }
@@ -915,8 +926,9 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
     case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY:
         if (!require_data(cmd, data))
             return false;
-        *(const char **)data = NULL;
-        fprintf(stderr, "Core queried save directory: (null - core will use system directory)\n");
+        *(const char **)data = g_frontend.system_directory;
+        fprintf(stderr, "Core queried save directory: %s\n",
+                g_frontend.system_directory ? g_frontend.system_directory : "(null)");
         return true;
 
     case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO: {

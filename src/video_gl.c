@@ -255,6 +255,16 @@ bool video_gl_init(SDL_Window *window, struct retro_hw_render_callback *hw,
     ctx->cache_context = hw->cache_context;
     ctx->bottom_left_origin = hw->bottom_left_origin;
 
+    /* Resolve hot-path GL function pointers once. video_gl_present runs
+     * every frame; re-resolving via SDL_GL_GetProcAddress per call wastes
+     * cycles. The pointers are stored as void* in the header to avoid
+     * leaking GL typedefs there. */
+    ctx->fn_bind_framebuffer = (retro_proc_address_t)GLPROC(BindFramebuffer);
+    ctx->fn_blit_framebuffer = (retro_proc_address_t)GLPROC(BlitFramebuffer);
+    ctx->fn_clear_color      = (retro_proc_address_t)GLPROC(ClearColor);
+    ctx->fn_clear            = (retro_proc_address_t)GLPROC(Clear);
+    ctx->fn_viewport         = (retro_proc_address_t)GLPROC(Viewport);
+
     /* Create an FBO for the core to render into. */
     int w, h;
     SDL_GetWindowSizeInPixels(window, &w, &h);
@@ -321,11 +331,11 @@ void video_gl_context_destroy(struct video_gl_context *ctx)
 
 void video_gl_present(struct video_gl_context *ctx, unsigned width, unsigned height)
 {
-    PFNGLBINDFRAMEBUFFERPROC glBindFramebuffer = GLPROC(BindFramebuffer);
-    PFNGLBLITFRAMEBUFFERPROC glBlitFramebuffer = GLPROC(BlitFramebuffer);
-    PFNGLCLEARCOLORPROC glClearColor = GLPROC(ClearColor);
-    PFNGLCLEARPROC glClear = GLPROC(Clear);
-    PFNGLVIEWPORTPROC glViewport = GLPROC(Viewport);
+    PFNGLBINDFRAMEBUFFERPROC glBindFramebuffer = (PFNGLBINDFRAMEBUFFERPROC)ctx->fn_bind_framebuffer;
+    PFNGLBLITFRAMEBUFFERPROC glBlitFramebuffer = (PFNGLBLITFRAMEBUFFERPROC)ctx->fn_blit_framebuffer;
+    PFNGLCLEARCOLORPROC glClearColor = (PFNGLCLEARCOLORPROC)ctx->fn_clear_color;
+    PFNGLCLEARPROC glClear = (PFNGLCLEARPROC)ctx->fn_clear;
+    PFNGLVIEWPORTPROC glViewport = (PFNGLVIEWPORTPROC)ctx->fn_viewport;
 
     if (!glBindFramebuffer) {
         fprintf(stderr, "video_gl_present: glBindFramebuffer not available\n");
@@ -353,21 +363,8 @@ void video_gl_present(struct video_gl_context *ctx, unsigned width, unsigned hei
 
     /* Blit the rendered region (width x height) to a centered rectangle
      * that preserves aspect ratio. */
-    float src_aspect = (float)width / (float)height;
-    float dst_aspect = (float)w / (float)h;
-    GLint dst_w, dst_h, dst_x, dst_y;
-
-    if (src_aspect > dst_aspect) {
-        dst_w = w;
-        dst_h = (GLint)((float)w / src_aspect);
-        dst_x = 0;
-        dst_y = (h - dst_h) / 2;
-    } else {
-        dst_h = h;
-        dst_w = (GLint)((float)h * src_aspect);
-        dst_x = (w - dst_w) / 2;
-        dst_y = 0;
-    }
+    int dst_x, dst_y, dst_w, dst_h;
+    fit_aspect(width, height, w, h, &dst_x, &dst_y, &dst_w, &dst_h);
 
     GLint src_y0 = ctx->bottom_left_origin ? 0 : (GLint)height;
     GLint src_y1 = ctx->bottom_left_origin ? (GLint)height : 0;

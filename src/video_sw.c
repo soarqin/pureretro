@@ -34,9 +34,6 @@ void video_sw_destroy(struct video_sw_context *ctx)
     if (!ctx)
         return;
 
-    if (ctx->convert_surface)
-        SDL_DestroySurface(ctx->convert_surface);
-
     if (ctx->texture)
         SDL_DestroyTexture(ctx->texture);
 
@@ -108,21 +105,14 @@ void video_sw_present(struct video_sw_context *ctx, const void *data,
     int win_w, win_h;
     SDL_GetRenderOutputSize(ctx->renderer, &win_w, &win_h);
 
-    float src_aspect = (float)width / (float)height;
-    float dst_aspect = (float)win_w / (float)win_h;
-    SDL_FRect dst;
+    int dst_x, dst_y, dst_w, dst_h;
+    fit_aspect(width, height, win_w, win_h, &dst_x, &dst_y, &dst_w, &dst_h);
 
-    if (src_aspect > dst_aspect) {
-        dst.w = (float)win_w;
-        dst.h = (float)win_w / src_aspect;
-        dst.x = 0.0f;
-        dst.y = ((float)win_h - dst.h) / 2.0f;
-    } else {
-        dst.h = (float)win_h;
-        dst.w = (float)win_h * src_aspect;
-        dst.x = ((float)win_w - dst.w) / 2.0f;
-        dst.y = 0.0f;
-    }
+    SDL_FRect dst;
+    dst.x = (float)dst_x;
+    dst.y = (float)dst_y;
+    dst.w = (float)dst_w;
+    dst.h = (float)dst_h;
 
     SDL_RenderTexture(ctx->renderer, ctx->texture, NULL, &dst);
     SDL_RenderPresent(ctx->renderer);

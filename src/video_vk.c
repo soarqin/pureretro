@@ -248,11 +248,9 @@ static bool vk_swapchain_create(struct video_vk_context *ctx, SDL_Window *window
     }
     free(ctx->swapchain_images);
     free(ctx->swapchain_views);
-    free(ctx->framebuffers);
     free(ctx->cmd_buffers);
     ctx->swapchain_images = NULL;
     ctx->swapchain_views = NULL;
-    ctx->framebuffers = NULL;
     ctx->cmd_buffers = NULL;
     ctx->image_count = 0;
 
@@ -368,11 +366,9 @@ static bool vk_swapchain_create(struct video_vk_context *ctx, SDL_Window *window
         return false;
     ctx->swapchain_images = calloc(ctx->image_count, sizeof(VkImage));
     ctx->swapchain_views = calloc(ctx->image_count, sizeof(VkImageView));
-    /* framebuffers is reserved for future graphics pipeline use (see design spec) */
-    ctx->framebuffers = calloc(ctx->image_count, sizeof(VkFramebuffer));
     ctx->cmd_buffers = calloc(ctx->image_count, sizeof(VkCommandBuffer));
     if (!ctx->swapchain_images || !ctx->swapchain_views ||
-        !ctx->framebuffers || !ctx->cmd_buffers) {
+        !ctx->cmd_buffers) {
         fprintf(stderr, "Failed to allocate swapchain arrays\n");
         return false;
     }
@@ -602,7 +598,6 @@ void video_vk_destroy(struct video_vk_context *ctx)
 
     free(ctx->swapchain_images);
     free(ctx->swapchain_views);
-    free(ctx->framebuffers);
     free(ctx->cmd_buffers);
     free(ctx);
 }
@@ -696,21 +691,15 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
     if (src_width == 0) src_width = (int32_t)ctx->swapchain_extent.width;
     if (src_height == 0) src_height = (int32_t)ctx->swapchain_extent.height;
 
-    int32_t dst_w, dst_h, dst_x, dst_y;
-    float src_aspect = (float)src_width / (float)src_height;
-    float dst_aspect = (float)ctx->swapchain_extent.width / (float)ctx->swapchain_extent.height;
-
-    if (src_aspect > dst_aspect) {
-        dst_w = (int32_t)ctx->swapchain_extent.width;
-        dst_h = (int32_t)((float)ctx->swapchain_extent.width / src_aspect);
-        dst_x = 0;
-        dst_y = ((int32_t)ctx->swapchain_extent.height - dst_h) / 2;
-    } else {
-        dst_h = (int32_t)ctx->swapchain_extent.height;
-        dst_w = (int32_t)((float)ctx->swapchain_extent.height * src_aspect);
-        dst_x = ((int32_t)ctx->swapchain_extent.width - dst_w) / 2;
-        dst_y = 0;
-    }
+    int dst_x_i, dst_y_i, dst_w_i, dst_h_i;
+    fit_aspect((unsigned)src_width, (unsigned)src_height,
+               (int)ctx->swapchain_extent.width,
+               (int)ctx->swapchain_extent.height,
+               &dst_x_i, &dst_y_i, &dst_w_i, &dst_h_i);
+    int32_t dst_x = (int32_t)dst_x_i;
+    int32_t dst_y = (int32_t)dst_y_i;
+    int32_t dst_w = (int32_t)dst_w_i;
+    int32_t dst_h = (int32_t)dst_h_i;
 
     VkImageBlit blit = {0};
     blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -843,11 +832,9 @@ bool video_vk_resize(struct video_vk_context *ctx, SDL_Window *window)
     }
     free(ctx->swapchain_images);
     free(ctx->swapchain_views);
-    free(ctx->framebuffers);
     free(ctx->cmd_buffers);
     ctx->swapchain_images = NULL;
     ctx->swapchain_views = NULL;
-    ctx->framebuffers = NULL;
     ctx->cmd_buffers = NULL;
     ctx->image_count = 0;
 
@@ -908,9 +895,11 @@ void video_vk_destroy(struct video_vk_context *ctx)
     (void)ctx;
 }
 
-void video_vk_present(struct video_vk_context *ctx)
+void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned height)
 {
     (void)ctx;
+    (void)width;
+    (void)height;
 }
 
 retro_proc_address_t video_vk_get_proc_address(struct video_vk_context *ctx,

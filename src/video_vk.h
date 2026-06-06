@@ -41,7 +41,6 @@ struct video_vk_context
     uint32_t image_count;
     VkImage *swapchain_images;
     VkImageView *swapchain_views;
-    VkFramebuffer *framebuffers;
 
     /* Per-frame sync */
     uint32_t frame_index;

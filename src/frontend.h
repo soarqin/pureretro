@@ -98,8 +98,9 @@ struct frontend_state
     /* Audio stream handle */
     SDL_AudioStream *audio_stream;
 
-    /* Input state (bitmask for RetroPad buttons) */
-    uint16_t joypad_state[RETRO_DEVICE_ID_JOYPAD_MASK + 1];
+    /* Input state (one entry per RetroPad button id; MASK is a sentinel,
+     * not a real id, so it is excluded from the array). */
+    uint16_t joypad_state[RETRO_DEVICE_ID_JOYPAD_R3 + 1];
 
     /* Core paths */
     const char *core_path;
@@ -143,6 +144,30 @@ static inline const char *renderer_name(enum video_renderer r)
     case VIDEO_RENDERER_VULKAN: return "vk";
     }
     return "?";
+}
+
+/* Compute a centered destination rectangle of (out_w, out_h) within
+ * (dst_w, dst_h) that preserves the source aspect ratio of (src_w, src_h).
+ * The result is written to *out_x, *out_y, *out_w, *out_h. */
+static inline void fit_aspect(unsigned src_w, unsigned src_h,
+                              int dst_w, int dst_h,
+                              int *out_x, int *out_y,
+                              int *out_w, int *out_h)
+{
+    float src_aspect = (float)src_w / (float)src_h;
+    float dst_aspect = (float)dst_w / (float)dst_h;
+
+    if (src_aspect > dst_aspect) {
+        *out_w = dst_w;
+        *out_h = (int)((float)dst_w / src_aspect);
+        *out_x = 0;
+        *out_y = (dst_h - *out_h) / 2;
+    } else {
+        *out_h = dst_h;
+        *out_w = (int)((float)dst_h * src_aspect);
+        *out_x = (dst_w - *out_w) / 2;
+        *out_y = 0;
+    }
 }
 
 #ifdef __cplusplus
