@@ -44,36 +44,6 @@ static const struct video_backend *find_backend(enum retro_hw_context_type type)
     return NULL;
 }
 
-/* Mirror the new opaque pointer into the legacy concrete-typed
- * fields on video_state so external callers in core.c / main.c
- * continue to work during the A-1 migration. Task 5 deletes
- * both this helper and the legacy fields. */
-static void sync_legacy_fields(struct video_state *v)
-{
-    v->sw = NULL;
-    v->gl = NULL;
-#ifdef PURERETRO_VULKAN_ENABLED
-    v->vk = NULL;
-#endif
-    if (!v->backend)
-        return;
-    switch (v->backend->id) {
-    case VIDEO_RENDERER_SW:
-        v->sw = (struct video_sw_context *)v->backend_ctx;
-        break;
-    case VIDEO_RENDERER_OPENGL:
-        v->gl = (struct video_gl_context *)v->backend_ctx;
-        break;
-#ifdef PURERETRO_VULKAN_ENABLED
-    case VIDEO_RENDERER_VULKAN:
-        v->vk = (struct video_vk_context *)v->backend_ctx;
-        break;
-#endif
-    default:
-        break;
-    }
-}
-
 bool video_init(const char *title, unsigned width, unsigned height)
 {
     struct video_state *v = &g_frontend.video;
@@ -102,7 +72,6 @@ void video_shutdown(void)
         v->backend->destroy(v->backend_ctx);
         v->backend_ctx = NULL;
         v->backend = NULL;
-        sync_legacy_fields(v);
     }
 
     if (v->window) {
@@ -204,7 +173,6 @@ bool video_set_hw_render(struct retro_hw_render_callback *hw)
             v->backend_ctx = ctx;
             v->renderer = VIDEO_RENDERER_SW;
             v->hw_render_enabled = false;
-            sync_legacy_fields(v);
         }
         return false;
     }
@@ -219,8 +187,6 @@ bool video_set_hw_render(struct retro_hw_render_callback *hw)
         hw->get_proc_address = video_get_proc_address;
         memcpy(&v->hw, hw, sizeof(v->hw));
     }
-
-    sync_legacy_fields(v);
 
     fprintf(stderr, "Active renderer: %s\n", new_backend->name);
     if (g_frontend.preferred_renderer != VIDEO_RENDERER_NONE &&
@@ -304,6 +270,5 @@ bool video_ensure_software_renderer(void)
     v->backend_ctx = ctx;
     v->renderer = VIDEO_RENDERER_SW;
     v->hw_render_enabled = false;
-    sync_legacy_fields(v);
     return true;
 }

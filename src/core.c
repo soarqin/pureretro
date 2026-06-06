@@ -14,8 +14,6 @@
 #include "core_variables_parse.h"
 #include "frontend.h"
 #include "video.h"
-#include "video_gl.h"
-#include "video_vk.h"
 #include "audio.h"
 #include "input.h"
 

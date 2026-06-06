@@ -13,8 +13,6 @@
 #include "core.h"
 #include "core_variables.h"
 #include "video.h"
-#include "video_sw.h"
-#include "video_gl.h"
 #include "audio.h"
 #include "input.h"
 
@@ -367,13 +365,6 @@ int main(int argc, char *argv[])
 
     run_loop();
 
-    /* For OpenGL, invoke the core's context_destroy callback while the
-     * core is still loaded. The callback lives inside the core's shared
-     * object; calling it after SDL_UnloadObject would segfault.
-     * video_gl_context_destroy() zeros the pointer so the later call in
-     * video_gl_destroy (during frontend_shutdown) is a no-op.
-     * For Vulkan, keep unloading the core first so its background threads
-     * stop before we tear down the VkInstance. */
     if (g_frontend.video.hw_render_enabled) {
         video_context_destroy();
     }
