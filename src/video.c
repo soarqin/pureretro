@@ -120,17 +120,12 @@ void video_process_event(const SDL_Event *event)
 
     if (event->type == SDL_EVENT_WINDOW_RESIZED ||
         event->type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) {
-        v->frame_width  = (unsigned)event->window.data1;
-        v->frame_height = (unsigned)event->window.data2;
-        if (v->hw_render_enabled && v->renderer == VIDEO_RENDERER_OPENGL &&
-            v->gl && !v->gl->cache_context) {
-            video_gl_destroy(v->gl);
-            v->gl = NULL;
-            if (!video_gl_init(v->window, &v->hw, &v->gl)) {
-                fprintf(stderr, "Failed to recreate GL context after resize\n");
-                g_frontend.running = false;
-            } else if (v->hw.context_reset) {
-                v->hw.context_reset();
+        unsigned new_w = (unsigned)event->window.data1;
+        unsigned new_h = (unsigned)event->window.data2;
+
+        if (v->hw_render_enabled && v->renderer == VIDEO_RENDERER_OPENGL && v->gl) {
+            if (!video_gl_resize(v->gl, new_w, new_h)) {
+                fprintf(stderr, "Failed to resize GL FBO after window resize\n");
             }
         }
 

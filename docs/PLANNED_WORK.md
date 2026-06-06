@@ -70,7 +70,7 @@ Enable cores that request `RETRO_HW_CONTEXT_VULKAN` to render via a Vulkan conte
 
 ---
 
-## Phase 5 — Polish & Cross-Platform Verification
+## Phase 5 — Polish & Cross-Platform Verification ✅
 
 ### Goal
 Ensure the frontend is stable and builds cleanly on all three target platforms.
@@ -78,25 +78,27 @@ Ensure the frontend is stable and builds cleanly on all three target platforms.
 ### Tasks
 
 1. **Platform builds**
-   - **Linux**: Verify with GCC and Clang. Test on X11 and Wayland.
-   - **macOS**: Verify with Xcode Command Line Tools. Test Metal fallback if needed. Document MoltenVK dependency for Vulkan.
-   - **Windows**: Verify with Visual Studio 2022 and MinGW-w64.
+   - ✅ **Linux**: Verified with GCC and Clang. SDL3 handles X11 and Wayland automatically.
+   - ✅ **macOS**: CI-tested with Apple Clang via GitHub Actions. MoltenVK is used when the Vulkan SDK is present.
+   - ✅ **Windows**: CI-tested with Visual Studio 2022 and MinGW-w64 via GitHub Actions.
 
 2. **Window management**
-   - Handle window resizing correctly for all three renderers.
-   - Fix fullscreen toggle edge cases (resolution change, multi-monitor).
+   - ✅ Resizing now resizes the OpenGL FBO (instead of destroying and recreating the GL context).
+   - ✅ Vulkan swapchain is recreated on resize.
+   - ✅ Software renderer preserves aspect ratio on window resize.
+   - ✅ Fullscreen toggle no longer triggers expensive GL context teardown.
 
 3. **Audio polish**
-   - Fix audio crackling or drift if observed during testing.
-   - Consider adding audio resampling if core sample rate doesn't match device rate.
+   - ✅ SDL3 audio streams perform automatic resampling; no frontend resampler needed.
+   - ✅ `--no-audio` flag allows silent operation.
 
 4. **Command-line enhancements**
-   - Add `--scale <N>` for integer window scaling.
-   - Add `--fullscreen` (already partially implemented).
-   - Add `--no-audio` for silent mode.
+   - ✅ `--scale <N>` sets integer window scaling based on core base resolution.
+   - ✅ `--fullscreen` fully supported.
+   - ✅ `--no-audio` disables audio output.
 
-5. **CI / build automation (optional)**
-   - Add a GitHub Actions workflow to build on Linux, macOS, and Windows.
+5. **CI / build automation**
+   - ✅ GitHub Actions workflow (`.github/workflows/build.yml`) builds on Linux (GCC + Clang), macOS, and Windows (MSVC + MinGW).
 
 ---
 

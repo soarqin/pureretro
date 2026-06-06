@@ -27,6 +27,8 @@ static void print_usage(const char *argv0)
     fprintf(stderr, "  --fullscreen, -f    Start in fullscreen mode\n");
     fprintf(stderr, "  --render <api>      Hint preferred renderer: vk, gl, or sw\n");
     fprintf(stderr, "                      (Core may still choose a different renderer.)\n");
+    fprintf(stderr, "  --scale <N>         Integer window scale (1-16)\n");
+    fprintf(stderr, "  --no-audio          Disable audio output\n");
     fprintf(stderr, "  --variable <k=v>    Override a core option variable\n");
 }
 
@@ -70,6 +72,22 @@ static bool parse_args(int argc, char *argv[])
         if (strcmp(argv[i], "--fullscreen") == 0 ||
             strcmp(argv[i], "-f") == 0) {
             g_frontend.fullscreen = true;
+        } else if (strcmp(argv[i], "--scale") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--scale requires an integer argument (1-16)\n");
+                print_usage(argv[0]);
+                return false;
+            }
+            char *endptr = NULL;
+            long val = strtol(argv[++i], &endptr, 10);
+            if (*endptr != '\0' || val < 1 || val > 16) {
+                fprintf(stderr, "Invalid scale: '%s' (expected 1-16)\n", argv[i]);
+                print_usage(argv[0]);
+                return false;
+            }
+            g_frontend.window_scale = (unsigned)val;
+        } else if (strcmp(argv[i], "--no-audio") == 0) {
+            g_frontend.no_audio = true;
         } else if (strcmp(argv[i], "--render") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "--render requires an argument (vk, gl, or sw)\n");
@@ -248,8 +266,21 @@ int main(int argc, char *argv[])
         }
     }
 
+    /* Resize window to integer scale if requested */
+    if (g_frontend.window_scale > 0) {
+        unsigned base_w = g_av_info.geometry.base_width;
+        unsigned base_h = g_av_info.geometry.base_height;
+        if (base_w > 0 && base_h > 0) {
+            unsigned w = base_w * g_frontend.window_scale;
+            unsigned h = base_h * g_frontend.window_scale;
+            if (w <= FRONTEND_MAX_WIDTH && h <= FRONTEND_MAX_HEIGHT) {
+                SDL_SetWindowSize(g_frontend.video.window, (int)w, (int)h);
+            }
+        }
+    }
+
     /* Initialize audio now that we know the core's sample rate */
-    if (!audio_init(g_av_info.timing.sample_rate)) {
+    if (!g_frontend.no_audio && !audio_init(g_av_info.timing.sample_rate)) {
         fprintf(stderr, "Warning: failed to initialize audio\n");
     }
 

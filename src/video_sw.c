@@ -101,9 +101,29 @@ void video_sw_present(struct video_sw_context *ctx, const void *data,
         }
     }
 
-    /* Clear and present. */
+    /* Clear and present with aspect ratio preservation. */
     SDL_SetRenderDrawColor(ctx->renderer, 0, 0, 0, 255);
     SDL_RenderClear(ctx->renderer);
-    SDL_RenderTexture(ctx->renderer, ctx->texture, NULL, NULL);
+
+    int win_w, win_h;
+    SDL_GetRenderOutputSize(ctx->renderer, &win_w, &win_h);
+
+    float src_aspect = (float)width / (float)height;
+    float dst_aspect = (float)win_w / (float)win_h;
+    SDL_FRect dst;
+
+    if (src_aspect > dst_aspect) {
+        dst.w = (float)win_w;
+        dst.h = (float)win_w / src_aspect;
+        dst.x = 0.0f;
+        dst.y = ((float)win_h - dst.h) / 2.0f;
+    } else {
+        dst.h = (float)win_h;
+        dst.w = (float)win_h * src_aspect;
+        dst.x = ((float)win_w - dst.w) / 2.0f;
+        dst.y = 0.0f;
+    }
+
+    SDL_RenderTexture(ctx->renderer, ctx->texture, NULL, &dst);
     SDL_RenderPresent(ctx->renderer);
 }

@@ -72,6 +72,7 @@ struct frontend_state
 {
     bool running;
     bool fullscreen;
+    bool no_audio;
 
     /* User-requested renderer preference (VIDEO_RENDERER_NONE = no preference).
      * Set via the --render CLI flag. The core may still request a different
@@ -82,6 +83,10 @@ struct frontend_state
      * Used for diagnostics: if the user requested HW but this is false,
      * the core never tried to initialize HW rendering. */
     bool hw_render_requested;
+
+    /* Integer window scale factor. 0 means no scaling (use default size).
+     * Applied after core init based on base_width/base_height. */
+    unsigned window_scale;
 
     struct video_state video;
 

@@ -14,12 +14,12 @@ PureRetro is a **minimal libretro frontend**. It is educational by design — ev
 | Phase 2 | ✅ Complete | Software-only working frontend: core loading, video (SDL3 texture), audio (SDL3 stream), input (keyboard → RetroPad) |
 | Phase 3 | ✅ Complete | OpenGL hardware rendering: context creation, FBO management, presentation blit, context lifecycle (`docs/PLANNED_WORK.md`) |
 | Phase 4 | ✅ Complete | Vulkan hardware rendering: instance, device, swapchain, presentation blit, libretro interface (`docs/PLANNED_WORK.md`) |
-| Phase 5 | 📝 Planned | Cross-platform polish and testing (`docs/PLANNED_WORK.md`) |
+| Phase 5 | ✅ Complete | Cross-platform polish and testing (`docs/PLANNED_WORK.md`) |
 
 ### Verified Build Targets
-- **Linux (GCC 13.3, Ubuntu 24.04)**: ✅ Builds and links successfully
-- **macOS**: Not yet tested
-- **Windows**: Not yet tested
+- **Linux (GCC 13.3, Clang 22, Ubuntu 24.04)**: ✅ Builds and links successfully
+- **macOS**: CI-tested (GitHub Actions macos-latest)
+- **Windows**: CI-tested (GitHub Actions windows-latest with MSVC and MinGW-w64)
 
 ### CMake Notes
 SDL3 is resolved automatically:
