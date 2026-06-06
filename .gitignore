@@ -1,5 +1,6 @@
-build/
-build_*/
+/build/
+/build_*/
+/.codegraph/
 *.o
 *.a
 *.so
@@ -7,8 +8,8 @@ build_*/
 *.dll
 pureretro
 .DS_Store
-.idea/
-.vscode/
+/.idea/
+/.vscode/
 *.swp
 *~
-docs/superpowers/
+/docs/superpowers/
