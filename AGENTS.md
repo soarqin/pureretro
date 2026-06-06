@@ -46,12 +46,13 @@ This separation keeps each renderer self-contained and easier to reason about in
 ### Module Map
 
 ```
-main       ->  core, video, audio, input, frontend
-video      ->  video_sw, video_gl, video_vk (runtime dispatch)
-core       ->  libretro.h, frontend
-audio      ->  SDL3
-input      ->  SDL3
-frontend   ->  (shared typedefs and globals)
+main            ->  core, video, audio, input, frontend
+video           ->  video_sw, video_gl, video_vk (runtime dispatch)
+core            ->  libretro.h, frontend, core_variables
+core_variables  ->  libretro.h, frontend, core_variables_parse
+audio           ->  SDL3
+input           ->  SDL3
+frontend        ->  (shared typedefs and globals)
 ```
 
 ### No libretro-common Policy

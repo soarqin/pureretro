@@ -139,29 +139,25 @@ vtable with one entry per renderer would make adding a 4th backend
 match the project's educational/minimal posture. Revisit when a 4th
 backend is on the roadmap.
 
-### A-2 (review #36) — Split `core.c` (~960 lines)
-The file currently mixes four concerns:
-1. Dynamic loading / lifecycle (`core_load`, `core_unload`).
-2. Variable table CRUD (`variable_add`/`variables_find`/...).
-3. Variable persistence (`core_variables_load`/`_save`,
-   `core_variables_path`).
-4. Environment callback dispatcher (`core_environment`).
+### A-2 (review #36) — Split core.c — DONE 2026-06-06
 
-Proposed split:
-- `core.c` — keep 1 and 4 (callbacks).
-- `core_variables.c` / `core_variables.h` — own 2 and 3.
+Split into `core.c` (lifecycle + dispatcher + libretro callbacks),
+`core_variables.{c,h}` (variable_table CRUD + persistence + CLI
+override), and `core_variables_parse.{c,h}` (pure string parsers).
+The three flat (items, count, capacity) tuples on g_frontend
+collapsed into three `struct variable_table` fields.
+SET_VARIABLES declaration order is now preserved; .opt files
+iterate in core-author order.
 
-Also wrap the three `retro_variable *` plus their `count`/`capacity`
-fields on `g_frontend` into a `struct variable_table` for readability.
+### A-3 (review #27) — Tighten `frontend.h` include footprint — DROPPED 2026-06-06
 
-### A-3 (review #27) — Tighten `frontend.h` include footprint
-`frontend.h` pulls in the entire `<SDL3/SDL.h>` to access two opaque
-pointer types (`SDL_Window *`, `SDL_AudioStream *`). Forward
-declaring those would cut compile time across every translation unit.
-
-Risk: SDL3 may already typedef them in a way that breaks plain
-`struct SDL_Window;` forward declarations on some platforms. Validate
-on Linux, macOS, and Windows (MSVC + MinGW) before merging.
+Premise no longer holds. Every .c that includes frontend.h already
+directly includes <SDL3/SDL.h>, and every local header reachable
+from those .c files (input.h, video_sw.h, video_gl.h, video_vk.h)
+also pulls in the full SDL.h for parameter types. Forward-declaring
+SDL_Window/SDL_AudioStream in frontend.h alone yields zero
+measurable compile-time win and would be a cosmetic change with no
+benefit.
 
 ---
 
