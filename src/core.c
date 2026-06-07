@@ -330,8 +330,15 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
     case RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS:
         return false;
 
-    case RETRO_ENVIRONMENT_SET_KEYBOARD_CALLBACK:
-        return false;
+    case RETRO_ENVIRONMENT_SET_KEYBOARD_CALLBACK: {
+        if (!require_data(cmd, data))
+            return false;
+        const struct retro_keyboard_callback *cb =
+            (const struct retro_keyboard_callback *)data;
+        if (cb)
+            g_frontend.keyboard_callback = *cb;
+        return true;
+    }
 
     case RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE:
         return false;

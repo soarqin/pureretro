@@ -33,6 +33,7 @@ static void print_usage(const char *argv0)
     fprintf(stderr, "  --variable <k=v>    Override a core option variable\n");
     fprintf(stderr, "  --portable          Portable mode: use the current directory as the\n");
     fprintf(stderr, "                      config base (system files in ./system)\n");
+    fprintf(stderr, "  --config <path>     Load key remapping configuration file\n");
 }
 
 static bool parse_render(const char *arg, enum video_renderer *out)
@@ -109,6 +110,14 @@ static bool parse_args(int argc, char *argv[])
             }
             fprintf(stderr, "Renderer preference: %s\n",
                     renderer_name(g_frontend.preferred_renderer));
+        } else if (strcmp(argv[i], "--config") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--config requires a file path\n");
+                print_usage(argv[0]);
+                return false;
+            }
+            ++i;
+            g_frontend.config_path = argv[i];
         } else if (strcmp(argv[i], "--variable") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "--variable requires an argument (key=value)\n");
@@ -297,6 +306,13 @@ int main(int argc, char *argv[])
                                           g_frontend.system_directory);
     if (opt_path)
         core_variables_load(opt_path);
+
+    if (g_frontend.config_path) {
+        if (!input_load_keymap(g_frontend.config_path)) {
+            fprintf(stderr, "Warning: failed to load keymap config: %s\n",
+                    g_frontend.config_path);
+        }
+    }
 
     if (!core_init(g_frontend.content_path)) {
         fprintf(stderr, "Failed to initialize core\n");
