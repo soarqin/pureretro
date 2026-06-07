@@ -25,6 +25,19 @@ struct video_sw_context
     int          texture_width;
     int          texture_height;
     SDL_PixelFormat texture_format;
+
+    /* Zero-copy framebuffer state for GET_CURRENT_SOFTWARE_FRAMEBUFFER.
+     * When the core requests a frontend-owned framebuffer, we lock the
+     * streaming texture and hand the raw pixel pointer back. The core
+     * is then expected to call retro_video_refresh with the same
+     * pointer; video_sw_present detects the match and skips the
+     * UpdateTexture copy, unlocking the texture instead. */
+    bool         locked;
+    void        *locked_pixels;
+    int          locked_pitch;
+    int          locked_width;
+    int          locked_height;
+    SDL_PixelFormat locked_format;
 };
 
 /* Initialize the software renderer for the given window. */
@@ -39,6 +52,16 @@ void video_sw_destroy(struct video_sw_context *ctx);
 void video_sw_present(struct video_sw_context *ctx, const void *data,
                       unsigned width, unsigned height, size_t pitch,
                       enum retro_pixel_format fmt);
+
+/* Lock the streaming texture and expose its pixel buffer to the core
+ * for direct (zero-copy) rendering. The buffer remains valid until
+ * the next call to video_sw_present or video_sw_destroy.
+ * Returns false on size/format mismatch or if locking is unsupported
+ * for the requested format. */
+bool video_sw_get_framebuffer(struct video_sw_context *ctx,
+                              unsigned width, unsigned height,
+                              enum retro_pixel_format fmt,
+                              void **out_data, size_t *out_pitch);
 
 #ifdef __cplusplus
 }

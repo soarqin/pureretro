@@ -62,6 +62,19 @@ struct video_state
     bool hw_render_enabled;
 };
 
+/* Maximum number of input ports we track controller info for.
+ * libretro itself has no hard cap, but real cores top out around 8.
+ * Slots beyond this are accepted but not recorded. */
+#define FRONTEND_MAX_PORTS 8
+
+/* Per-port controller info recorded from RETRO_ENVIRONMENT_SET_CONTROLLER_INFO.
+ * We deep-copy the descriptors so the storage outlives the core's call. */
+struct controller_port_info
+{
+    struct retro_controller_description *types;
+    unsigned num_types;
+};
+
 /* Global frontend state */
 struct frontend_state
 {
@@ -124,6 +137,27 @@ struct frontend_state
     const char *config_path;
     struct retro_keyboard_callback keyboard_callback;
     retro_core_options_update_display_callback_t core_options_update_display_callback;
+
+    /* Per-port controller info from SET_CONTROLLER_INFO (deep-copied). */
+    struct controller_port_info controller_ports[FRONTEND_MAX_PORTS];
+    unsigned controller_port_count;
+
+    /* Disk control (SET_DISK_CONTROL_EXT_INTERFACE).
+     * Both the legacy and ext callbacks are stored; helpers always prefer
+     * the ext-only fields when available. has_disk_control means at least
+     * one of the basic eject/index callbacks is wired. */
+    struct retro_disk_control_ext_callback disk_control;
+    bool has_disk_control;
+
+    /* Initial disk index requested via --disk-index. Applied after the
+     * core registers its disk control interface. -1 means "no override". */
+    int initial_disk_index;
+
+    /* Optional player name reported through GET_USERNAME. NULL when unset. */
+    char *username;
+
+    /* Language reported through GET_LANGUAGE (defaults to ENGLISH). */
+    enum retro_language language;
 };
 
 extern struct frontend_state g_frontend;

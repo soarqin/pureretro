@@ -35,6 +35,11 @@ void video_sw_destroy(struct video_sw_context *ctx)
     if (!ctx)
         return;
 
+    if (ctx->locked && ctx->texture) {
+        SDL_UnlockTexture(ctx->texture);
+        ctx->locked = false;
+    }
+
     if (ctx->texture)
         SDL_DestroyTexture(ctx->texture);
 
@@ -42,6 +47,51 @@ void video_sw_destroy(struct video_sw_context *ctx)
         SDL_DestroyRenderer(ctx->renderer);
 
     free(ctx);
+}
+
+/* Map a libretro pixel format to its SDL equivalent. Returns SDL_PIXELFORMAT_UNKNOWN
+ * when the format cannot be represented. */
+static SDL_PixelFormat sdl_format_for(enum retro_pixel_format fmt)
+{
+    switch (fmt) {
+    case RETRO_PIXEL_FORMAT_0RGB1555: return SDL_PIXELFORMAT_XRGB1555;
+    case RETRO_PIXEL_FORMAT_XRGB8888: return SDL_PIXELFORMAT_XRGB8888;
+    case RETRO_PIXEL_FORMAT_RGB565:   return SDL_PIXELFORMAT_RGB565;
+    default:                          return SDL_PIXELFORMAT_UNKNOWN;
+    }
+}
+
+/* (Re)create the streaming texture if dimensions or format changed. */
+static bool ensure_texture(struct video_sw_context *ctx, unsigned width,
+                           unsigned height, SDL_PixelFormat sdl_fmt)
+{
+    if (ctx->texture &&
+        ctx->texture_width == (int)width &&
+        ctx->texture_height == (int)height &&
+        ctx->texture_format == sdl_fmt)
+        return true;
+
+    if (ctx->texture) {
+        if (ctx->locked) {
+            SDL_UnlockTexture(ctx->texture);
+            ctx->locked = false;
+        }
+        SDL_DestroyTexture(ctx->texture);
+        ctx->texture = NULL;
+    }
+
+    ctx->texture = SDL_CreateTexture(ctx->renderer, sdl_fmt,
+                                      SDL_TEXTUREACCESS_STREAMING,
+                                      (int)width, (int)height);
+    if (!ctx->texture) {
+        fprintf(stderr, "SDL_CreateTexture failed: %s\n", SDL_GetError());
+        return false;
+    }
+
+    ctx->texture_width = (int)width;
+    ctx->texture_height = (int)height;
+    ctx->texture_format = sdl_fmt;
+    return true;
 }
 
 void video_sw_present(struct video_sw_context *ctx, const void *data,
@@ -53,49 +103,40 @@ void video_sw_present(struct video_sw_context *ctx, const void *data,
     if (!ctx || !ctx->renderer)
         return;
 
-    /* Map libretro pixel format to SDL pixel format. */
-    switch (fmt) {
-    case RETRO_PIXEL_FORMAT_0RGB1555:
-        sdl_fmt = SDL_PIXELFORMAT_XRGB1555;
-        break;
-    case RETRO_PIXEL_FORMAT_XRGB8888:
-        sdl_fmt = SDL_PIXELFORMAT_XRGB8888;
-        break;
-    case RETRO_PIXEL_FORMAT_RGB565:
-        sdl_fmt = SDL_PIXELFORMAT_RGB565;
-        break;
-    default:
+    sdl_fmt = sdl_format_for(fmt);
+    if (sdl_fmt == SDL_PIXELFORMAT_UNKNOWN) {
         fprintf(stderr, "Unsupported pixel format: %d\n", fmt);
         return;
     }
 
-    /* Recreate the texture if dimensions or format changed. */
-    if (!ctx->texture ||
-        ctx->texture_width != (int)width ||
-        ctx->texture_height != (int)height ||
-        ctx->texture_format != sdl_fmt) {
+    if (!ensure_texture(ctx, width, height, sdl_fmt))
+        return;
 
-        if (ctx->texture)
-            SDL_DestroyTexture(ctx->texture);
-
-        ctx->texture = SDL_CreateTexture(ctx->renderer, sdl_fmt,
-                                          SDL_TEXTUREACCESS_STREAMING,
-                                          (int)width, (int)height);
-        if (!ctx->texture) {
-            fprintf(stderr, "SDL_CreateTexture failed: %s\n", SDL_GetError());
-            return;
+    /* Zero-copy fast path: the core handed back the pointer we previously
+     * gave it via video_sw_get_framebuffer. Just unlock the texture and
+     * skip the UpdateTexture copy. We still verify the size/format match
+     * the lock so a stale buffer doesn't sneak through. */
+    if (ctx->locked && data == ctx->locked_pixels &&
+        (int)width == ctx->locked_width &&
+        (int)height == ctx->locked_height &&
+        sdl_fmt == ctx->locked_format) {
+        SDL_UnlockTexture(ctx->texture);
+        ctx->locked = false;
+        ctx->locked_pixels = NULL;
+    } else {
+        /* If a previous lock was never followed by a refresh with the
+         * locked pointer (core changed its mind), drop it now. */
+        if (ctx->locked) {
+            SDL_UnlockTexture(ctx->texture);
+            ctx->locked = false;
+            ctx->locked_pixels = NULL;
         }
 
-        ctx->texture_width = (int)width;
-        ctx->texture_height = (int)height;
-        ctx->texture_format = sdl_fmt;
-    }
-
-    /* Update texture with pixel data. */
-    if (data) {
-        if (!SDL_UpdateTexture(ctx->texture, NULL, data, (int)pitch)) {
-            fprintf(stderr, "SDL_UpdateTexture failed: %s\n", SDL_GetError());
-            return;
+        if (data) {
+            if (!SDL_UpdateTexture(ctx->texture, NULL, data, (int)pitch)) {
+                fprintf(stderr, "SDL_UpdateTexture failed: %s\n", SDL_GetError());
+                return;
+            }
         }
     }
 
@@ -117,6 +158,49 @@ void video_sw_present(struct video_sw_context *ctx, const void *data,
 
     SDL_RenderTexture(ctx->renderer, ctx->texture, NULL, &dst);
     SDL_RenderPresent(ctx->renderer);
+}
+
+bool video_sw_get_framebuffer(struct video_sw_context *ctx,
+                              unsigned width, unsigned height,
+                              enum retro_pixel_format fmt,
+                              void **out_data, size_t *out_pitch)
+{
+    if (!ctx || !ctx->renderer || !out_data || !out_pitch)
+        return false;
+
+    SDL_PixelFormat sdl_fmt = sdl_format_for(fmt);
+    if (sdl_fmt == SDL_PIXELFORMAT_UNKNOWN)
+        return false;
+
+    if (!ensure_texture(ctx, width, height, sdl_fmt))
+        return false;
+
+    /* Only one outstanding lock per frame: re-locking would double-map
+     * the same texture. If the core asks twice without presenting in
+     * between, return the existing lock to keep the contract simple. */
+    if (ctx->locked) {
+        *out_data = ctx->locked_pixels;
+        *out_pitch = (size_t)ctx->locked_pitch;
+        return true;
+    }
+
+    void *pixels = NULL;
+    int pitch = 0;
+    if (!SDL_LockTexture(ctx->texture, NULL, &pixels, &pitch)) {
+        fprintf(stderr, "SDL_LockTexture failed: %s\n", SDL_GetError());
+        return false;
+    }
+
+    ctx->locked = true;
+    ctx->locked_pixels = pixels;
+    ctx->locked_pitch = pitch;
+    ctx->locked_width = (int)width;
+    ctx->locked_height = (int)height;
+    ctx->locked_format = sdl_fmt;
+
+    *out_data = pixels;
+    *out_pitch = (size_t)pitch;
+    return true;
 }
 
 /* ----- video_backend vtable adapters ----- */

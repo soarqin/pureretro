@@ -35,6 +35,57 @@ static void print_usage(const char *argv0)
     fprintf(stderr, "  --portable          Portable mode: use the current directory as the\n");
     fprintf(stderr, "                      config base (system files in ./system)\n");
     fprintf(stderr, "  --config <path>     Load key remapping configuration file\n");
+    fprintf(stderr, "  --disk-index <N>    For multi-disc content: initial disk index (0-based)\n");
+    fprintf(stderr, "  --lang <code>       Language reported to the core (e.g. en, ja, fr, de,\n");
+    fprintf(stderr, "                      es, it, pt_br, pt_pt, ru, ko, zh_cn, zh_tw)\n");
+    fprintf(stderr, "  --username <name>   Player name reported via GET_USERNAME\n");
+}
+
+static bool parse_lang(const char *arg, enum retro_language *out)
+{
+    /* Compact 2-letter / locale-style codes mapped to RETRO_LANGUAGE_*.
+     * Only the most common codes are wired; extend as needed. */
+    static const struct { const char *code; enum retro_language id; } map[] = {
+        { "en",     RETRO_LANGUAGE_ENGLISH },
+        { "en_gb",  RETRO_LANGUAGE_BRITISH_ENGLISH },
+        { "ja",     RETRO_LANGUAGE_JAPANESE },
+        { "fr",     RETRO_LANGUAGE_FRENCH },
+        { "es",     RETRO_LANGUAGE_SPANISH },
+        { "de",     RETRO_LANGUAGE_GERMAN },
+        { "it",     RETRO_LANGUAGE_ITALIAN },
+        { "nl",     RETRO_LANGUAGE_DUTCH },
+        { "pt_br",  RETRO_LANGUAGE_PORTUGUESE_BRAZIL },
+        { "pt_pt",  RETRO_LANGUAGE_PORTUGUESE_PORTUGAL },
+        { "ru",     RETRO_LANGUAGE_RUSSIAN },
+        { "ko",     RETRO_LANGUAGE_KOREAN },
+        { "zh_tw",  RETRO_LANGUAGE_CHINESE_TRADITIONAL },
+        { "zh_cn",  RETRO_LANGUAGE_CHINESE_SIMPLIFIED },
+        { "eo",     RETRO_LANGUAGE_ESPERANTO },
+        { "pl",     RETRO_LANGUAGE_POLISH },
+        { "vi",     RETRO_LANGUAGE_VIETNAMESE },
+        { "ar",     RETRO_LANGUAGE_ARABIC },
+        { "el",     RETRO_LANGUAGE_GREEK },
+        { "tr",     RETRO_LANGUAGE_TURKISH },
+        { "sk",     RETRO_LANGUAGE_SLOVAK },
+        { "fa",     RETRO_LANGUAGE_PERSIAN },
+        { "he",     RETRO_LANGUAGE_HEBREW },
+        { "fi",     RETRO_LANGUAGE_FINNISH },
+        { "id",     RETRO_LANGUAGE_INDONESIAN },
+        { "sv",     RETRO_LANGUAGE_SWEDISH },
+        { "uk",     RETRO_LANGUAGE_UKRAINIAN },
+        { "cs",     RETRO_LANGUAGE_CZECH },
+        { "hu",     RETRO_LANGUAGE_HUNGARIAN },
+        { "no",     RETRO_LANGUAGE_NORWEGIAN },
+        { "ga",     RETRO_LANGUAGE_IRISH },
+        { "th",     RETRO_LANGUAGE_THAI },
+    };
+    for (size_t i = 0; i < sizeof(map) / sizeof(map[0]); ++i) {
+        if (strcmp(arg, map[i].code) == 0) {
+            *out = map[i].id;
+            return true;
+        }
+    }
+    return false;
 }
 
 static bool parse_render(const char *arg, enum video_renderer *out)
@@ -152,6 +203,43 @@ static bool parse_args(int argc, char *argv[])
             memcpy(key, arg, key_len);
             key[key_len] = '\0';
             core_variable_override(key, eq + 1);
+        } else if (strcmp(argv[i], "--disk-index") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--disk-index requires an integer argument\n");
+                print_usage(argv[0]);
+                return false;
+            }
+            ++i;
+            char *endptr = NULL;
+            long val = strtol(argv[i], &endptr, 10);
+            if (*endptr != '\0' || val < 0 || val > 255) {
+                fprintf(stderr, "Invalid disk index: '%s' (expected 0-255)\n",
+                        argv[i]);
+                print_usage(argv[0]);
+                return false;
+            }
+            g_frontend.initial_disk_index = (int)val;
+        } else if (strcmp(argv[i], "--lang") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--lang requires a language code\n");
+                print_usage(argv[0]);
+                return false;
+            }
+            ++i;
+            if (!parse_lang(argv[i], &g_frontend.language)) {
+                fprintf(stderr, "Unknown language code: '%s'\n", argv[i]);
+                print_usage(argv[0]);
+                return false;
+            }
+        } else if (strcmp(argv[i], "--username") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--username requires a name\n");
+                print_usage(argv[0]);
+                return false;
+            }
+            ++i;
+            free(g_frontend.username);
+            g_frontend.username = SDL_strdup(argv[i]);
         } else {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             print_usage(argv[0]);
@@ -246,6 +334,8 @@ static void frontend_shutdown(void)
     g_frontend.system_directory = NULL;
     free(g_frontend.save_directory);
     g_frontend.save_directory = NULL;
+    SDL_free(g_frontend.username);
+    g_frontend.username = NULL;
     SDL_Quit();
 }
 
@@ -302,6 +392,8 @@ static void run_loop(void)
 int main(int argc, char *argv[])
 {
     memset(&g_frontend, 0, sizeof(g_frontend));
+    g_frontend.initial_disk_index = -1;
+    g_frontend.language = RETRO_LANGUAGE_ENGLISH;
 
     if (!parse_args(argc, argv))
         return EXIT_FAILURE;

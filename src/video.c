@@ -359,3 +359,14 @@ bool video_ensure_software_renderer(void)
     v->hw_render_enabled = false;
     return true;
 }
+
+bool video_get_software_framebuffer(unsigned width, unsigned height,
+                                    enum retro_pixel_format fmt,
+                                    void **out_data, size_t *out_pitch)
+{
+    struct video_state *v = &g_frontend.video;
+    if (!v->backend || !v->backend_ctx || v->backend != &sw_backend)
+        return false;
+    return video_sw_get_framebuffer((struct video_sw_context *)v->backend_ctx,
+                                    width, height, fmt, out_data, out_pitch);
+}

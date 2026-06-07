@@ -27,6 +27,57 @@ static SDL_SharedObject *g_core_handle = NULL;
 /* Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
+static void controller_ports_clear(void)
+{
+    for (unsigned p = 0; p < g_frontend.controller_port_count; ++p) {
+        struct controller_port_info *port = &g_frontend.controller_ports[p];
+        for (unsigned i = 0; i < port->num_types; ++i)
+            free((char *)port->types[i].desc);
+        free(port->types);
+        port->types = NULL;
+        port->num_types = 0;
+    }
+    g_frontend.controller_port_count = 0;
+}
+
+/* Apply --disk-index after the core has registered a disk control interface.
+ * The libretro contract permits set_image_index() at any time after init. */
+static void disk_control_apply_initial_index(void)
+{
+    if (!g_frontend.has_disk_control)
+        return;
+    if (g_frontend.initial_disk_index < 0)
+        return;
+
+    const struct retro_disk_control_ext_callback *d = &g_frontend.disk_control;
+    if (!d->get_num_images || !d->set_eject_state || !d->set_image_index) {
+        fprintf(stderr,
+                "--disk-index ignored: core missing required disk callbacks\n");
+        return;
+    }
+
+    unsigned num = d->get_num_images();
+    unsigned idx = (unsigned)g_frontend.initial_disk_index;
+    if (idx >= num) {
+        fprintf(stderr,
+                "--disk-index %u out of range (core reports %u images)\n",
+                idx, num);
+        return;
+    }
+
+    /* Standard eject-set-insert dance, mirroring how real frontends switch
+     * disks. Failures are warned but non-fatal: the core may simply have
+     * the requested disk already loaded. */
+    if (!d->set_eject_state(true))
+        fprintf(stderr, "warning: disk set_eject_state(true) failed\n");
+    if (!d->set_image_index(idx))
+        fprintf(stderr, "warning: disk set_image_index(%u) failed\n", idx);
+    if (!d->set_eject_state(false))
+        fprintf(stderr, "warning: disk set_eject_state(false) failed\n");
+
+    fprintf(stderr, "Disk index set to %u (of %u)\n", idx, num);
+}
+
 static bool load_file(const char *path, void **out_data, size_t *out_size)
 {
     FILE *fp;
@@ -161,6 +212,10 @@ void core_unload(void)
     core_options_table_clear(&g_frontend.core_options);
     variable_table_clear(&g_frontend.disk_overrides);
     variable_table_clear(&g_frontend.cli_overrides);
+
+    controller_ports_clear();
+    memset(&g_frontend.disk_control, 0, sizeof(g_frontend.disk_control));
+    g_frontend.has_disk_control = false;
 
     memset(&g_core, 0, sizeof(g_core));
 }
@@ -639,8 +694,141 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
     case RETRO_ENVIRONMENT_GET_LANGUAGE:
         if (!require_data(cmd, data))
             return false;
-        *(enum retro_language *)data = RETRO_LANGUAGE_ENGLISH;
+        *(enum retro_language *)data = g_frontend.language;
         return true;
+
+    case RETRO_ENVIRONMENT_GET_USERNAME:
+        if (!require_data(cmd, data))
+            return false;
+        *(const char **)data = g_frontend.username;
+        return g_frontend.username != NULL;
+
+    case RETRO_ENVIRONMENT_SET_CONTROLLER_INFO: {
+        if (!require_data(cmd, data))
+            return false;
+        const struct retro_controller_info *info =
+            (const struct retro_controller_info *)data;
+
+        controller_ports_clear();
+
+        unsigned port = 0;
+        for (const struct retro_controller_info *p = info;
+             p && p->types && p->num_types > 0;
+             ++p, ++port) {
+            if (port >= FRONTEND_MAX_PORTS) {
+                fprintf(stderr,
+                        "SET_CONTROLLER_INFO: dropping ports beyond %u\n",
+                        (unsigned)FRONTEND_MAX_PORTS);
+                break;
+            }
+
+            struct controller_port_info *slot = &g_frontend.controller_ports[port];
+            slot->types = calloc(p->num_types, sizeof(*slot->types));
+            if (!slot->types) {
+                controller_ports_clear();
+                return false;
+            }
+            slot->num_types = p->num_types;
+
+            for (unsigned i = 0; i < p->num_types; ++i) {
+                slot->types[i].id = p->types[i].id;
+                slot->types[i].desc = p->types[i].desc
+                    ? SDL_strdup(p->types[i].desc) : NULL;
+            }
+        }
+        g_frontend.controller_port_count = port;
+
+        fprintf(stderr, "Core registered controller info for %u port(s):\n", port);
+        for (unsigned i = 0; i < port; ++i) {
+            const struct controller_port_info *slot = &g_frontend.controller_ports[i];
+            fprintf(stderr, "  port %u: %u device type(s)\n", i, slot->num_types);
+            for (unsigned t = 0; t < slot->num_types; ++t) {
+                fprintf(stderr, "    [%u] id=%u desc=%s\n",
+                        t, slot->types[t].id,
+                        slot->types[t].desc ? slot->types[t].desc : "(null)");
+            }
+        }
+        return true;
+    }
+
+    case RETRO_ENVIRONMENT_GET_DISK_CONTROL_INTERFACE_VERSION:
+        if (!require_data(cmd, data))
+            return false;
+        *(unsigned *)data = 1;
+        return true;
+
+    case RETRO_ENVIRONMENT_SET_DISK_CONTROL_EXT_INTERFACE: {
+        if (!require_data(cmd, data))
+            return false;
+        const struct retro_disk_control_ext_callback *cb =
+            (const struct retro_disk_control_ext_callback *)data;
+        g_frontend.disk_control = *cb;
+        g_frontend.has_disk_control = true;
+        fprintf(stderr,
+                "Core registered disk control ext interface (num_images=%u)\n",
+                cb->get_num_images ? cb->get_num_images() : 0);
+        disk_control_apply_initial_index();
+        return true;
+    }
+
+    case RETRO_ENVIRONMENT_GET_CURRENT_SOFTWARE_FRAMEBUFFER: {
+        if (!require_data(cmd, data))
+            return false;
+        struct retro_framebuffer *fb = (struct retro_framebuffer *)data;
+        if (fb->width == 0 || fb->height == 0)
+            return false;
+
+        /* Only honour the request when the core wants to write the buffer.
+         * Read-only access would require a different mapping (we never
+         * read back from the texture), so decline cleanly in that case. */
+        if (!(fb->access_flags & RETRO_MEMORY_ACCESS_WRITE))
+            return false;
+
+        void *pixels = NULL;
+        size_t pitch = 0;
+        if (!video_get_software_framebuffer(fb->width, fb->height,
+                                            g_frontend.video.pixel_format,
+                                            &pixels, &pitch))
+            return false;
+
+        fb->data = pixels;
+        fb->pitch = pitch;
+        fb->format = g_frontend.video.pixel_format;
+        fb->memory_flags = 0;
+        return true;
+    }
+
+    case RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE:
+        if (!require_data(cmd, data))
+            return false;
+        /* bit0: audio enabled, bit1: video enabled, bit2: fast-forwarding,
+         * bit3: hard disable audio. We never hard-disable, never report
+         * fast-forwarding (not implemented yet), and video is always on. */
+        *(int *)data = (g_frontend.no_audio ? 0 : 1) | (1 << 1);
+        return true;
+
+    case RETRO_ENVIRONMENT_GET_FASTFORWARDING:
+        if (!require_data(cmd, data))
+            return false;
+        *(bool *)data = false;
+        return true;
+
+    case RETRO_ENVIRONMENT_GET_TARGET_REFRESH_RATE: {
+        if (!require_data(cmd, data))
+            return false;
+        float rate = 60.0f;
+        SDL_Window *win = g_frontend.video.window;
+        if (win) {
+            SDL_DisplayID disp = SDL_GetDisplayForWindow(win);
+            if (disp) {
+                const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(disp);
+                if (mode && mode->refresh_rate > 0.0f)
+                    rate = mode->refresh_rate;
+            }
+        }
+        *(float *)data = rate;
+        return true;
+    }
 
     case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY:
         return false;

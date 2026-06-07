@@ -81,6 +81,15 @@ void video_context_destroy(void);
  * No-op (returns true) if a backend is already active. */
 bool video_ensure_software_renderer(void);
 
+/* GET_CURRENT_SOFTWARE_FRAMEBUFFER backing. Asks the active software
+ * backend for a writable pixel buffer of the given dimensions and
+ * format. The buffer is owned by the backend and remains valid until
+ * the next video_present() call. Returns false if the active backend
+ * is not the software renderer, or if locking fails. */
+bool video_get_software_framebuffer(unsigned width, unsigned height,
+                                    enum retro_pixel_format fmt,
+                                    void **out_data, size_t *out_pitch);
+
 #ifdef __cplusplus
 }
 #endif
