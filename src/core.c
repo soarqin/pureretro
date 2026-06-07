@@ -258,6 +258,65 @@ static bool require_data(unsigned cmd, const void *data)
     return true;
 }
 
+static bool add_options_from_v1_defs(const struct retro_core_option_definition *defs)
+{
+    bool ok = true;
+    for (const struct retro_core_option_definition *def = defs; def && def->key; ++def) {
+        const char *values[RETRO_NUM_CORE_OPTION_VALUES_MAX + 1];
+        size_t val_count = 0;
+        for (size_t i = 0; i < RETRO_NUM_CORE_OPTION_VALUES_MAX; ++i) {
+            if (!def->values[i].value)
+                break;
+            values[val_count++] = def->values[i].value;
+        }
+        values[val_count] = NULL;
+        if (!core_options_table_add(&g_frontend.core_options,
+                                    def->key, def->desc, def->info,
+                                    values, def->default_value)) {
+            ok = false;
+            break;
+        }
+    }
+    return ok;
+}
+
+static bool add_options_from_v2_defs(const struct retro_core_option_v2_definition *defs)
+{
+    bool ok = true;
+    for (const struct retro_core_option_v2_definition *def = defs; def && def->key; ++def) {
+        const char *values[RETRO_NUM_CORE_OPTION_VALUES_MAX + 1];
+        size_t val_count = 0;
+        for (size_t i = 0; i < RETRO_NUM_CORE_OPTION_VALUES_MAX; ++i) {
+            if (!def->values[i].value)
+                break;
+            values[val_count++] = def->values[i].value;
+        }
+        values[val_count] = NULL;
+        if (!core_options_table_add(&g_frontend.core_options,
+                                    def->key, def->desc, def->info,
+                                    values, def->default_value)) {
+            ok = false;
+            break;
+        }
+    }
+    return ok;
+}
+
+static size_t seed_disk_overrides_from_defaults(void)
+{
+    size_t seeded = 0;
+    size_t total = core_options_table_count(&g_frontend.core_options);
+    for (size_t i = 0; i < total; ++i) {
+        const struct core_option *opt =
+            core_options_table_at(&g_frontend.core_options, i);
+        if (variable_table_get(&g_frontend.disk_overrides, opt->key))
+            continue;
+        if (variable_table_set(&g_frontend.disk_overrides, opt->key, opt->default_value))
+            seeded++;
+    }
+    return seeded;
+}
+
 bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
 {
     /* Some cores (e.g. Beetle PSX HW) call callbacks with the experimental
@@ -585,6 +644,82 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         }
         fprintf(stderr, "GET_HW_RENDER_INTERFACE: returning %p\n",
                 (const void *)*iface);
+        return true;
+    }
+
+    case RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION:
+        if (!require_data(cmd, data))
+            return false;
+        *(unsigned *)data = 2;
+        return true;
+
+    case RETRO_ENVIRONMENT_SET_CORE_OPTIONS: {
+        if (!require_data(cmd, data))
+            return false;
+        const struct retro_core_option_definition *defs =
+            (const struct retro_core_option_definition *)data;
+        core_options_table_clear(&g_frontend.core_options);
+        bool ok = add_options_from_v1_defs(defs);
+        size_t seeded = seed_disk_overrides_from_defaults();
+        size_t total = core_options_table_count(&g_frontend.core_options);
+        fprintf(stderr, "Core registered %zu options (%zu seeded from defaults)\n",
+                total, seeded);
+        return ok;
+    }
+
+    case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL: {
+        if (!require_data(cmd, data))
+            return false;
+        const struct retro_core_options_intl *opts =
+            (const struct retro_core_options_intl *)data;
+        core_options_table_clear(&g_frontend.core_options);
+        bool ok = true;
+        if (opts->us)
+            ok = add_options_from_v1_defs(opts->us);
+        size_t seeded = seed_disk_overrides_from_defaults();
+        size_t total = core_options_table_count(&g_frontend.core_options);
+        fprintf(stderr, "Core registered %zu options (%zu seeded from defaults)\n",
+                total, seeded);
+        return ok;
+    }
+
+    case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2: {
+        if (!require_data(cmd, data))
+            return false;
+        const struct retro_core_options_v2 *opts =
+            (const struct retro_core_options_v2 *)data;
+        core_options_table_clear(&g_frontend.core_options);
+        bool ok = add_options_from_v2_defs(opts->definitions);
+        size_t seeded = seed_disk_overrides_from_defaults();
+        size_t total = core_options_table_count(&g_frontend.core_options);
+        fprintf(stderr, "Core registered %zu options (%zu seeded from defaults)\n",
+                total, seeded);
+        return ok;
+    }
+
+    case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL: {
+        if (!require_data(cmd, data))
+            return false;
+        const struct retro_core_options_v2_intl *opts =
+            (const struct retro_core_options_v2_intl *)data;
+        core_options_table_clear(&g_frontend.core_options);
+        bool ok = true;
+        if (opts->us)
+            ok = add_options_from_v2_defs(opts->us->definitions);
+        size_t seeded = seed_disk_overrides_from_defaults();
+        size_t total = core_options_table_count(&g_frontend.core_options);
+        fprintf(stderr, "Core registered %zu options (%zu seeded from defaults)\n",
+                total, seeded);
+        return ok;
+    }
+
+    case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK: {
+        if (!require_data(cmd, data))
+            return false;
+        const struct retro_core_options_update_display_callback *cb =
+            (const struct retro_core_options_update_display_callback *)data;
+        if (cb->callback)
+            g_frontend.core_options_update_display_callback = cb->callback;
         return true;
     }
 
