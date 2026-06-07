@@ -157,7 +157,7 @@ void core_unload(void)
         g_frontend.rom_size = 0;
     }
 
-    variable_table_clear(&g_frontend.variables);
+    core_options_table_clear(&g_frontend.core_options);
     variable_table_clear(&g_frontend.disk_overrides);
     variable_table_clear(&g_frontend.cli_overrides);
 
@@ -374,14 +374,12 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
             return true;
         }
 
-        const char *raw = variable_table_get(&g_frontend.variables, var->key);
-        if (!raw)
+        const struct core_option *opt =
+            core_options_table_get(&g_frontend.core_options, var->key);
+        if (!opt)
             return false;
 
-        static char fallback_buf[256];
-        if (!core_var_parse_default(raw, fallback_buf, sizeof(fallback_buf)))
-            return false;
-        var->value = fallback_buf;
+        var->value = opt->current_value ? opt->current_value : opt->default_value;
         return true;
     }
 
@@ -390,28 +388,63 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         if (!vars)
             return false;
 
-        variable_table_clear(&g_frontend.variables);
+        core_options_table_clear(&g_frontend.core_options);
 
         bool ok = true;
         for (const struct retro_variable *v = vars; v && v->key; ++v) {
-            if (!variable_table_set(&g_frontend.variables, v->key, v->value)) {
-                ok = false;
-                break;
+            char desc[256];
+            core_var_parse_description(v->value, desc, sizeof(desc));
+
+            char def[256];
+            core_var_parse_default(v->value, def, sizeof(def));
+
+            const char *choices = core_var_choices_begin(v->value);
+            const char *values[64];
+            size_t val_count = 0;
+
+            if (choices) {
+                const char *p = choices;
+                while (*p && val_count < 63) {
+                    const char *end = p;
+                    while (*end && *end != '|')
+                        ++end;
+                    size_t len = (size_t)(end - p);
+                    char *choice = malloc(len + 1);
+                    if (!choice) {
+                        ok = false;
+                        break;
+                    }
+                    memcpy(choice, p, len);
+                    choice[len] = '\0';
+                    values[val_count++] = choice;
+                    if (*end == '|')
+                        ++end;
+                    p = end;
+                }
             }
+            values[val_count] = NULL;
+
+            if (!core_options_table_add(&g_frontend.core_options,
+                                        v->key, desc, NULL, values, def)) {
+                ok = false;
+            }
+
+            for (size_t i = 0; i < val_count; ++i)
+                free((char *)values[i]);
+
+            if (!ok)
+                break;
         }
 
         size_t seeded = 0;
-        size_t total = variable_table_count(&g_frontend.variables);
+        size_t total = core_options_table_count(&g_frontend.core_options);
         for (size_t i = 0; i < total; ++i) {
-            const struct retro_variable *iv =
-                variable_table_at(&g_frontend.variables, i);
-            if (variable_table_get(&g_frontend.disk_overrides, iv->key))
+            const struct core_option *opt =
+                core_options_table_at(&g_frontend.core_options, i);
+            if (variable_table_get(&g_frontend.disk_overrides, opt->key))
                 continue;
-
-            char def[256];
-            if (!core_var_parse_default(iv->value, def, sizeof(def)))
-                continue;
-            if (variable_table_set(&g_frontend.disk_overrides, iv->key, def))
+            if (variable_table_set(&g_frontend.disk_overrides,
+                                   opt->key, opt->default_value))
                 seeded++;
         }
 
@@ -507,8 +540,18 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
     case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY:
         return false;
 
-    case RETRO_ENVIRONMENT_SET_VARIABLE:
-        return false;
+    case RETRO_ENVIRONMENT_SET_VARIABLE: {
+        if (!require_data(cmd, data))
+            return false;
+        const struct retro_variable *var = (const struct retro_variable *)data;
+        if (!var->key || !var->value)
+            return false;
+        if (!core_options_table_set_value(&g_frontend.core_options,
+                                          var->key, var->value))
+            return false;
+        variable_table_set(&g_frontend.disk_overrides, var->key, var->value);
+        return true;
+    }
 
     case RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE & ~RETRO_ENVIRONMENT_EXPERIMENTAL:
         if (!require_data(cmd, data))

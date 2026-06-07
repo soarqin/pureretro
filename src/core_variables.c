@@ -2,6 +2,8 @@
  * PureRetro — Core option variable table implementation.
  */
 
+#define _POSIX_C_SOURCE 200809L
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,61 +11,193 @@
 #include "core_variables_parse.h"
 #include "frontend.h"
 
-/* Find sorted_index slot whose item->key equals key, or return
- * (size_t)-1 if not found. Uses bsearch semantics (O(log N)). */
-static size_t sorted_index_find(const struct variable_table *t, const char *key)
+/* ------------------------------------------------------------------ */
+/* core_options_table                                                  */
+/* ------------------------------------------------------------------ */
+
+static void core_option_clear(struct core_option *opt)
 {
+    if (!opt)
+        return;
+    free(opt->key);
+    free(opt->desc);
+    free(opt->info);
+    if (opt->values) {
+        for (size_t i = 0; opt->values[i]; ++i)
+            free(opt->values[i]);
+        free(opt->values);
+    }
+    free(opt->default_value);
+    free(opt->current_value);
+    memset(opt, 0, sizeof(*opt));
+}
+
+void core_options_table_clear(struct core_options_table *t)
+{
+    if (!t)
+        return;
+    for (size_t i = 0; i < t->count; ++i)
+        core_option_clear(&t->options[i]);
+    free(t->options);
+    free(t->sorted_index);
+    t->options = NULL;
+    t->sorted_index = NULL;
+    t->count = 0;
+    t->capacity = 0;
+    t->index_capacity = 0;
+}
+
+bool core_options_table_add(struct core_options_table *t,
+                            const char *key,
+                            const char *desc,
+                            const char *info,
+                            const char *const *values,
+                            const char *default_value)
+{
+    if (!t || !key)
+        return false;
+
+    if (t->count >= t->capacity) {
+        size_t new_cap = t->capacity ? t->capacity * 2 : 16;
+        struct core_option *new_opts =
+            realloc(t->options, new_cap * sizeof(*new_opts));
+        if (!new_opts)
+            return false;
+        t->options = new_opts;
+        t->capacity = new_cap;
+    }
+
+    if (t->count >= t->index_capacity) {
+        size_t new_cap = t->index_capacity ? t->index_capacity * 2 : 16;
+        size_t *new_idx = realloc(t->sorted_index, new_cap * sizeof(*new_idx));
+        if (!new_idx)
+            return false;
+        t->sorted_index = new_idx;
+        t->index_capacity = new_cap;
+    }
+
+    struct core_option opt = {0};
+    opt.key = strdup(key);
+    if (!opt.key)
+        return false;
+    if (desc) {
+        opt.desc = strdup(desc);
+        if (!opt.desc)
+            goto fail;
+    }
+    if (info) {
+        opt.info = strdup(info);
+        if (!opt.info)
+            goto fail;
+    }
+    if (default_value) {
+        opt.default_value = strdup(default_value);
+        if (!opt.default_value)
+            goto fail;
+    }
+
+    if (values) {
+        size_t n = 0;
+        for (const char *const *vp = values; *vp; ++vp)
+            ++n;
+        opt.values = calloc(n + 1, sizeof(char *));
+        if (!opt.values)
+            goto fail;
+        for (size_t i = 0; i < n; ++i) {
+            opt.values[i] = strdup(values[i]);
+            if (!opt.values[i])
+                goto fail;
+        }
+        opt.values[n] = NULL;
+    }
+
+    t->options[t->count] = opt;
+
+    /* Insert t->count into sorted_index at the correct position. */
+    size_t pos = t->count;
+    for (size_t i = 0; i < t->count; ++i) {
+        if (strcmp(key, t->options[t->sorted_index[i]].key) < 0) {
+            pos = i;
+            break;
+        }
+    }
+    if (pos < t->count) {
+        memmove(&t->sorted_index[pos + 1], &t->sorted_index[pos],
+                (t->count - pos) * sizeof(t->sorted_index[0]));
+    }
+    t->sorted_index[pos] = t->count;
+
+    t->count++;
+    return true;
+
+fail:
+    core_option_clear(&opt);
+    return false;
+}
+
+const struct core_option *core_options_table_get(
+        const struct core_options_table *t, const char *key)
+{
+    if (!t || !key || t->count == 0)
+        return NULL;
+
     size_t lo = 0, hi = t->count;
     while (lo < hi) {
         size_t mid = lo + (hi - lo) / 2;
-        int cmp = strcmp(t->items[t->sorted_index[mid]].key, key);
+        int cmp = strcmp(key, t->options[t->sorted_index[mid]].key);
         if (cmp == 0)
-            return mid;
+            return &t->options[t->sorted_index[mid]];
         if (cmp < 0)
-            lo = mid + 1;
-        else
             hi = mid;
+        else
+            lo = mid + 1;
     }
-    return (size_t)-1;
+    return NULL;
 }
 
-/* Find sorted_index insertion point for key (assumes key not present).
- * Returns a value in [0, count]. */
-static size_t sorted_index_lower_bound(const struct variable_table *t,
-                                       const char *key)
+const struct core_option *core_options_table_at(
+        const struct core_options_table *t, size_t i)
 {
-    size_t lo = 0, hi = t->count;
-    while (lo < hi) {
-        size_t mid = lo + (hi - lo) / 2;
-        if (strcmp(t->items[t->sorted_index[mid]].key, key) < 0)
-            lo = mid + 1;
-        else
-            hi = mid;
-    }
-    return lo;
+    if (!t || i >= t->count)
+        return NULL;
+    return &t->options[i];
 }
 
-static bool items_grow(struct variable_table *t)
+size_t core_options_table_count(const struct core_options_table *t)
 {
-    size_t new_cap = t->capacity ? t->capacity * 2 : 16;
-    struct retro_variable *new_items =
-        realloc(t->items, new_cap * sizeof(*new_items));
-    if (!new_items)
+    return t ? t->count : 0;
+}
+
+bool core_options_table_set_value(struct core_options_table *t,
+                                  const char *key,
+                                  const char *value)
+{
+    if (!t || !key || !value)
         return false;
-    t->items = new_items;
-    t->capacity = new_cap;
+
+    const struct core_option *opt = core_options_table_get(t, key);
+    if (!opt)
+        return false;
+
+    char *v = strdup(value);
+    if (!v)
+        return false;
+
+    struct core_option *mutable_opt = (struct core_option *)opt;
+    free(mutable_opt->current_value);
+    mutable_opt->current_value = v;
     return true;
 }
 
-static bool sorted_index_grow(struct variable_table *t)
+/* ------------------------------------------------------------------ */
+/* variable_table                                                      */
+/* ------------------------------------------------------------------ */
+
+static int retro_var_cmp(const void *a, const void *b)
 {
-    size_t new_cap = t->index_capacity ? t->index_capacity * 2 : 16;
-    size_t *new_index = realloc(t->sorted_index, new_cap * sizeof(*new_index));
-    if (!new_index)
-        return false;
-    t->sorted_index = new_index;
-    t->index_capacity = new_cap;
-    return true;
+    const struct retro_variable *va = a;
+    const struct retro_variable *vb = b;
+    return strcmp(va->key, vb->key);
 }
 
 bool variable_table_set(struct variable_table *t,
@@ -72,51 +206,44 @@ bool variable_table_set(struct variable_table *t,
     if (!t || !key || !value)
         return false;
 
-    /* In-place update if key already exists. */
-    size_t hit = sorted_index_find(t, key);
-    if (hit != (size_t)-1) {
-        size_t item_idx = t->sorted_index[hit];
-        size_t vl = strlen(value);
-        char *v = malloc(vl + 1);
+    /* Try in-place update via bsearch. */
+    struct retro_variable key_var = { .key = (char *)key };
+    struct retro_variable *found = bsearch(&key_var,
+                                           t->items, t->count,
+                                           sizeof(t->items[0]), retro_var_cmp);
+    if (found) {
+        char *v = strdup(value);
         if (!v)
             return false;
-        memcpy(v, value, vl + 1);
-        free((char *)t->items[item_idx].value);
-        t->items[item_idx].value = v;
+        free((char *)found->value);
+        found->value = v;
         return true;
     }
 
-    /* New key: grow storage if needed. */
-    if (t->count >= t->capacity && !items_grow(t))
-        return false;
-    if (t->count >= t->index_capacity && !sorted_index_grow(t))
-        return false;
+    /* Grow and append. */
+    if (t->count >= t->capacity) {
+        size_t new_cap = t->capacity ? t->capacity * 2 : 16;
+        struct retro_variable *new_items =
+            realloc(t->items, new_cap * sizeof(*new_items));
+        if (!new_items)
+            return false;
+        t->items = new_items;
+        t->capacity = new_cap;
+    }
 
-    size_t kl = strlen(key);
-    size_t vl = strlen(value);
-    char *k = malloc(kl + 1);
-    char *v = malloc(vl + 1);
+    char *k = strdup(key);
+    char *v = strdup(value);
     if (!k || !v) {
         free(k);
         free(v);
         return false;
     }
-    memcpy(k, key, kl + 1);
-    memcpy(v, value, vl + 1);
 
-    size_t new_item_idx = t->count;
-    t->items[new_item_idx].key = k;
-    t->items[new_item_idx].value = v;
-
-    /* Insert new_item_idx into sorted_index at the right position. */
-    size_t pos = sorted_index_lower_bound(t, key);
-    if (pos < t->count) {
-        memmove(&t->sorted_index[pos + 1], &t->sorted_index[pos],
-                (t->count - pos) * sizeof(t->sorted_index[0]));
-    }
-    t->sorted_index[pos] = new_item_idx;
-
+    t->items[t->count].key = k;
+    t->items[t->count].value = v;
     t->count++;
+
+    qsort(t->items, t->count, sizeof(t->items[0]), retro_var_cmp);
     return true;
 }
 
@@ -124,10 +251,14 @@ const char *variable_table_get(const struct variable_table *t, const char *key)
 {
     if (!t || !key || t->count == 0)
         return NULL;
-    size_t hit = sorted_index_find(t, key);
-    if (hit == (size_t)-1)
+
+    struct retro_variable key_var = { .key = (char *)key };
+    const struct retro_variable *found = bsearch(&key_var,
+                                                  (void *)t->items, t->count,
+                                                  sizeof(t->items[0]), retro_var_cmp);
+    if (!found)
         return NULL;
-    return t->items[t->sorted_index[hit]].value;
+    return found->value;
 }
 
 void variable_table_clear(struct variable_table *t)
@@ -141,12 +272,9 @@ void variable_table_clear(struct variable_table *t)
         }
         free(t->items);
     }
-    free(t->sorted_index);
     t->items = NULL;
-    t->sorted_index = NULL;
     t->count = 0;
     t->capacity = 0;
-    t->index_capacity = 0;
 }
 
 size_t variable_table_count(const struct variable_table *t)
@@ -279,38 +407,15 @@ bool core_variables_load(const char *path)
     return true;
 }
 
-/* Write the choices list portion of a raw variable value string as a
- * single comment line: "# Choices: a | b | c". Choices are pipe-separated
- * in the raw value; we normalize separators with " | " for readability. */
-static void write_choices_comment(FILE *fp, const char *raw)
-{
-    const char *p = core_var_choices_begin(raw);
-    if (!p)
-        return;
-
-    fputs("# Choices: ", fp);
-    bool first = true;
-    while (*p) {
-        if (!first)
-            fputs(" | ", fp);
-        first = false;
-        while (*p && *p != '|')
-            fputc(*p++, fp);
-        if (*p == '|')
-            ++p;
-    }
-    fputc('\n', fp);
-}
-
 bool core_variables_save(const char *path)
 {
     if (!path)
         return false;
 
-    /* Persist disk_overrides, with rich comments derived from the variables
+    /* Persist disk_overrides, with rich comments derived from the core options
      * the core declared this run. CLI overrides are intentionally excluded.
      *
-     * Layout for each declared variable:
+     * Layout for each declared option:
      *   # <description>
      *   # Choices: a | b | c
      *   key=value
@@ -319,8 +424,8 @@ bool core_variables_save(const char *path)
      * (e.g. left over from a previous core version) are written without a
      * comment block to preserve the user's data. */
 
-    if (variable_table_count(&g_frontend.disk_overrides) == 0 &&
-        variable_table_count(&g_frontend.variables) == 0) {
+    if (core_options_table_count(&g_frontend.core_options) == 0 &&
+        variable_table_count(&g_frontend.disk_overrides) == 0) {
         /* Nothing to write. Avoid creating an empty file. */
         return true;
     }
@@ -339,34 +444,35 @@ bool core_variables_save(const char *path)
 
     size_t written = 0;
 
-    /* First pass: every variable the core declared, with comment block. */
-    size_t var_count = variable_table_count(&g_frontend.variables);
-    for (size_t i = 0; i < var_count; ++i) {
-        const struct retro_variable *iv =
-            variable_table_at(&g_frontend.variables, i);
-        const char *key = iv->key;
-        const char *raw = iv->value;
+    /* First pass: every option the core declared, with comment block. */
+    size_t opt_count = core_options_table_count(&g_frontend.core_options);
+    for (size_t i = 0; i < opt_count; ++i) {
+        const struct core_option *opt = core_options_table_at(&g_frontend.core_options, i);
+        const char *key = opt->key;
 
-        const char *value =
-            variable_table_get(&g_frontend.disk_overrides, key);
-        if (!value) {
-            static char def[256];
-            if (core_var_parse_default(raw, def, sizeof(def)))
-                value = def;
-        }
+        const char *value = variable_table_get(&g_frontend.disk_overrides, key);
+        if (!value)
+            value = opt->default_value;
         if (!value)
             continue;
 
-        char desc[256];
-        core_var_parse_description(raw, desc, sizeof(desc));
-
         fputc('\n', fp);
-        if (desc[0])
-            fprintf(fp, "# %s\n", desc);
-        write_choices_comment(fp, raw);
+        if (opt->desc && opt->desc[0])
+            fprintf(fp, "# %s\n", opt->desc);
 
-        const char *cli =
-            variable_table_get(&g_frontend.cli_overrides, key);
+        if (opt->values && opt->values[0]) {
+            fputs("# Choices: ", fp);
+            bool first = true;
+            for (size_t j = 0; opt->values[j]; ++j) {
+                if (!first)
+                    fputs(" | ", fp);
+                first = false;
+                fputs(opt->values[j], fp);
+            }
+            fputc('\n', fp);
+        }
+
+        const char *cli = variable_table_get(&g_frontend.cli_overrides, key);
         if (cli)
             fprintf(fp, "# (CLI override in effect this run: %s)\n", cli);
 
@@ -378,9 +484,8 @@ bool core_variables_save(const char *path)
     bool stray_header = false;
     size_t disk_count = variable_table_count(&g_frontend.disk_overrides);
     for (size_t i = 0; i < disk_count; ++i) {
-        const struct retro_variable *iv =
-            variable_table_at(&g_frontend.disk_overrides, i);
-        if (variable_table_get(&g_frontend.variables, iv->key))
+        const struct retro_variable *iv = variable_table_at(&g_frontend.disk_overrides, i);
+        if (core_options_table_get(&g_frontend.core_options, iv->key))
             continue;
 
         if (!stray_header) {

@@ -109,16 +109,21 @@ struct frontend_state
     void *rom_data;
     size_t rom_size;
 
-    /* Core variables (SET_VARIABLES / GET_VARIABLE).
-     * Stores the key and the raw value string (description; default|opt1|...).
-     * User overrides are stored separately so they survive SET_VARIABLES resets.
+    /* Core options (SET_VARIABLES / GET_VARIABLE).
+     * Structured storage for options declared by the core. User overrides
+     * are stored separately so they survive SET_VARIABLES resets.
      *
      * Lookup order in GET_VARIABLE: cli_overrides -> disk_overrides -> default.
      * cli_overrides come from --variable CLI flags and are never persisted.
      * disk_overrides are loaded from / saved to a per-core .opt file. */
-    struct variable_table variables;
+    struct core_options_table core_options;
     struct variable_table disk_overrides;
     struct variable_table cli_overrides;
+
+    char *save_directory;
+    const char *config_path;
+    struct retro_keyboard_callback keyboard_callback;
+    retro_core_options_update_display_callback_t core_options_update_display_callback;
 };
 
 extern struct frontend_state g_frontend;
