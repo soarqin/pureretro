@@ -40,6 +40,18 @@ static struct {
     { "R3", RETRO_DEVICE_ID_JOYPAD_R3 },
 };
 
+#define KEYMAP_UNMAPPED 0xFFu
+
+static unsigned parse_button_name(const char *name)
+{
+    for (size_t i = 0;
+         i < sizeof(g_button_names) / sizeof(g_button_names[0]); ++i) {
+        if (strcmp(g_button_names[i].name, name) == 0)
+            return g_button_names[i].id;
+    }
+    return KEYMAP_UNMAPPED;
+}
+
 /* ------------------------------------------------------------------ */
 /* Built-in scancode → RetroPad mapping                                */
 /* ------------------------------------------------------------------ */
@@ -63,7 +75,6 @@ static const struct
     { SDL_SCANCODE_W,      RETRO_DEVICE_ID_JOYPAD_R      },
 };
 
-#define KEYMAP_UNMAPPED 0xFFu
 static uint8_t g_scancode_to_retro[SDL_SCANCODE_COUNT];
 static bool g_scancode_table_built = false;
 
@@ -88,6 +99,7 @@ static void build_retro_key_table(void)
     for (size_t i = 0; i < SDL_SCANCODE_COUNT; ++i)
         g_sdl_to_retro_key[i] = RETROK_UNKNOWN;
 
+    /* letters */
     g_sdl_to_retro_key[SDL_SCANCODE_A] = RETROK_a;
     g_sdl_to_retro_key[SDL_SCANCODE_B] = RETROK_b;
     g_sdl_to_retro_key[SDL_SCANCODE_C] = RETROK_c;
@@ -115,6 +127,7 @@ static void build_retro_key_table(void)
     g_sdl_to_retro_key[SDL_SCANCODE_Y] = RETROK_y;
     g_sdl_to_retro_key[SDL_SCANCODE_Z] = RETROK_z;
 
+    /* digits */
     g_sdl_to_retro_key[SDL_SCANCODE_0] = RETROK_0;
     g_sdl_to_retro_key[SDL_SCANCODE_1] = RETROK_1;
     g_sdl_to_retro_key[SDL_SCANCODE_2] = RETROK_2;
@@ -126,6 +139,7 @@ static void build_retro_key_table(void)
     g_sdl_to_retro_key[SDL_SCANCODE_8] = RETROK_8;
     g_sdl_to_retro_key[SDL_SCANCODE_9] = RETROK_9;
 
+    /* function keys */
     g_sdl_to_retro_key[SDL_SCANCODE_F1]  = RETROK_F1;
     g_sdl_to_retro_key[SDL_SCANCODE_F2]  = RETROK_F2;
     g_sdl_to_retro_key[SDL_SCANCODE_F3]  = RETROK_F3;
@@ -139,18 +153,24 @@ static void build_retro_key_table(void)
     g_sdl_to_retro_key[SDL_SCANCODE_F11] = RETROK_F11;
     g_sdl_to_retro_key[SDL_SCANCODE_F12] = RETROK_F12;
 
-    g_sdl_to_retro_key[SDL_SCANCODE_UP]    = RETROK_UP;
-    g_sdl_to_retro_key[SDL_SCANCODE_DOWN]  = RETROK_DOWN;
-    g_sdl_to_retro_key[SDL_SCANCODE_LEFT]  = RETROK_LEFT;
-    g_sdl_to_retro_key[SDL_SCANCODE_RIGHT] = RETROK_RIGHT;
+    /* navigation and common keys */
+    g_sdl_to_retro_key[SDL_SCANCODE_UP]        = RETROK_UP;
+    g_sdl_to_retro_key[SDL_SCANCODE_DOWN]      = RETROK_DOWN;
+    g_sdl_to_retro_key[SDL_SCANCODE_LEFT]      = RETROK_LEFT;
+    g_sdl_to_retro_key[SDL_SCANCODE_RIGHT]     = RETROK_RIGHT;
+    g_sdl_to_retro_key[SDL_SCANCODE_RETURN]    = RETROK_RETURN;
+    g_sdl_to_retro_key[SDL_SCANCODE_ESCAPE]    = RETROK_ESCAPE;
+    g_sdl_to_retro_key[SDL_SCANCODE_SPACE]     = RETROK_SPACE;
+    g_sdl_to_retro_key[SDL_SCANCODE_BACKSPACE] = RETROK_BACKSPACE;
+    g_sdl_to_retro_key[SDL_SCANCODE_TAB]       = RETROK_TAB;
+    g_sdl_to_retro_key[SDL_SCANCODE_INSERT]    = RETROK_INSERT;
+    g_sdl_to_retro_key[SDL_SCANCODE_DELETE]    = RETROK_DELETE;
+    g_sdl_to_retro_key[SDL_SCANCODE_HOME]      = RETROK_HOME;
+    g_sdl_to_retro_key[SDL_SCANCODE_END]       = RETROK_END;
+    g_sdl_to_retro_key[SDL_SCANCODE_PAGEUP]    = RETROK_PAGEUP;
+    g_sdl_to_retro_key[SDL_SCANCODE_PAGEDOWN]  = RETROK_PAGEDOWN;
 
-    g_sdl_to_retro_key[SDL_SCANCODE_RETURN]     = RETROK_RETURN;
-    g_sdl_to_retro_key[SDL_SCANCODE_ESCAPE]     = RETROK_ESCAPE;
-    g_sdl_to_retro_key[SDL_SCANCODE_SPACE]      = RETROK_SPACE;
-    g_sdl_to_retro_key[SDL_SCANCODE_BACKSPACE]  = RETROK_BACKSPACE;
-    g_sdl_to_retro_key[SDL_SCANCODE_TAB]        = RETROK_TAB;
-    g_sdl_to_retro_key[SDL_SCANCODE_CAPSLOCK]   = RETROK_CAPSLOCK;
-
+    /* modifiers */
     g_sdl_to_retro_key[SDL_SCANCODE_LSHIFT] = RETROK_LSHIFT;
     g_sdl_to_retro_key[SDL_SCANCODE_RSHIFT] = RETROK_RSHIFT;
     g_sdl_to_retro_key[SDL_SCANCODE_LCTRL]  = RETROK_LCTRL;
@@ -160,13 +180,7 @@ static void build_retro_key_table(void)
     g_sdl_to_retro_key[SDL_SCANCODE_LGUI]   = RETROK_LMETA;
     g_sdl_to_retro_key[SDL_SCANCODE_RGUI]   = RETROK_RMETA;
 
-    g_sdl_to_retro_key[SDL_SCANCODE_PAGEUP]   = RETROK_PAGEUP;
-    g_sdl_to_retro_key[SDL_SCANCODE_PAGEDOWN] = RETROK_PAGEDOWN;
-    g_sdl_to_retro_key[SDL_SCANCODE_HOME]     = RETROK_HOME;
-    g_sdl_to_retro_key[SDL_SCANCODE_END]      = RETROK_END;
-    g_sdl_to_retro_key[SDL_SCANCODE_INSERT]   = RETROK_INSERT;
-    g_sdl_to_retro_key[SDL_SCANCODE_DELETE]   = RETROK_DELETE;
-
+    /* numpad */
     g_sdl_to_retro_key[SDL_SCANCODE_KP_0] = RETROK_KP0;
     g_sdl_to_retro_key[SDL_SCANCODE_KP_1] = RETROK_KP1;
     g_sdl_to_retro_key[SDL_SCANCODE_KP_2] = RETROK_KP2;
@@ -177,7 +191,6 @@ static void build_retro_key_table(void)
     g_sdl_to_retro_key[SDL_SCANCODE_KP_7] = RETROK_KP7;
     g_sdl_to_retro_key[SDL_SCANCODE_KP_8] = RETROK_KP8;
     g_sdl_to_retro_key[SDL_SCANCODE_KP_9] = RETROK_KP9;
-
     g_sdl_to_retro_key[SDL_SCANCODE_KP_ENTER]    = RETROK_KP_ENTER;
     g_sdl_to_retro_key[SDL_SCANCODE_KP_PLUS]     = RETROK_KP_PLUS;
     g_sdl_to_retro_key[SDL_SCANCODE_KP_MINUS]    = RETROK_KP_MINUS;
@@ -186,23 +199,18 @@ static void build_retro_key_table(void)
     g_sdl_to_retro_key[SDL_SCANCODE_KP_PERIOD]   = RETROK_KP_PERIOD;
     g_sdl_to_retro_key[SDL_SCANCODE_KP_EQUALS]   = RETROK_KP_EQUALS;
 
-    g_sdl_to_retro_key[SDL_SCANCODE_MINUS]        = RETROK_MINUS;
-    g_sdl_to_retro_key[SDL_SCANCODE_EQUALS]       = RETROK_EQUALS;
+    /* punctuation */
+    g_sdl_to_retro_key[SDL_SCANCODE_COMMA]      = RETROK_COMMA;
+    g_sdl_to_retro_key[SDL_SCANCODE_PERIOD]     = RETROK_PERIOD;
+    g_sdl_to_retro_key[SDL_SCANCODE_SLASH]      = RETROK_SLASH;
+    g_sdl_to_retro_key[SDL_SCANCODE_SEMICOLON]  = RETROK_SEMICOLON;
+    g_sdl_to_retro_key[SDL_SCANCODE_APOSTROPHE] = RETROK_QUOTE;
     g_sdl_to_retro_key[SDL_SCANCODE_LEFTBRACKET]  = RETROK_LEFTBRACKET;
     g_sdl_to_retro_key[SDL_SCANCODE_RIGHTBRACKET] = RETROK_RIGHTBRACKET;
-    g_sdl_to_retro_key[SDL_SCANCODE_SEMICOLON]    = RETROK_SEMICOLON;
-    g_sdl_to_retro_key[SDL_SCANCODE_APOSTROPHE]   = RETROK_QUOTE;
-    g_sdl_to_retro_key[SDL_SCANCODE_GRAVE]        = RETROK_BACKQUOTE;
     g_sdl_to_retro_key[SDL_SCANCODE_BACKSLASH]    = RETROK_BACKSLASH;
-    g_sdl_to_retro_key[SDL_SCANCODE_COMMA]        = RETROK_COMMA;
-    g_sdl_to_retro_key[SDL_SCANCODE_PERIOD]       = RETROK_PERIOD;
-    g_sdl_to_retro_key[SDL_SCANCODE_SLASH]        = RETROK_SLASH;
-
-    g_sdl_to_retro_key[SDL_SCANCODE_NUMLOCKCLEAR] = RETROK_NUMLOCK;
-    g_sdl_to_retro_key[SDL_SCANCODE_SCROLLLOCK]   = RETROK_SCROLLOCK;
-    g_sdl_to_retro_key[SDL_SCANCODE_PRINTSCREEN]  = RETROK_PRINT;
-    g_sdl_to_retro_key[SDL_SCANCODE_PAUSE]        = RETROK_PAUSE;
-    g_sdl_to_retro_key[SDL_SCANCODE_APPLICATION]  = RETROK_MENU;
+    g_sdl_to_retro_key[SDL_SCANCODE_MINUS]        = RETROK_MINUS;
+    g_sdl_to_retro_key[SDL_SCANCODE_EQUALS]       = RETROK_EQUALS;
+    g_sdl_to_retro_key[SDL_SCANCODE_GRAVE]        = RETROK_BACKQUOTE;
 
     g_retro_key_table_built = true;
 }
@@ -211,34 +219,12 @@ static void build_retro_key_table(void)
 /* Keymap config file parser                                           */
 /* ------------------------------------------------------------------ */
 
-static char *trim_whitespace(char *str)
-{
-    char *end;
-
-    while (isspace((unsigned char)*str))
-        str++;
-
-    if (*str == '\0')
-        return str;
-
-    end = str + strlen(str) - 1;
-    while (end > str && isspace((unsigned char)*end))
-        end--;
-
-    end[1] = '\0';
-    return str;
-}
-
 bool input_load_keymap(const char *path)
 {
-    FILE *fp;
-    char line[256];
-    unsigned loaded = 0;
-
     if (!path)
         return false;
 
-    fp = fopen(path, "r");
+    FILE *fp = fopen(path, "r");
     if (!fp) {
         fprintf(stderr, "Failed to open keymap config: %s\n", path);
         return false;
@@ -247,65 +233,59 @@ bool input_load_keymap(const char *path)
     if (!g_scancode_table_built)
         build_scancode_table();
 
+    char line[256];
+    size_t loaded = 0;
     while (fgets(line, sizeof(line), fp)) {
-        char *trimmed = trim_whitespace(line);
-        char *eq;
-        char *left;
-        char *right;
-        SDL_Scancode scancode;
-        unsigned retro_id = KEYMAP_UNMAPPED;
-        size_t j;
+        /* strip newline */
+        size_t len = strlen(line);
+        while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+            line[--len] = '\0';
 
-        if (trimmed[0] == '\0' || trimmed[0] == '#')
+        /* skip comments and blank lines */
+        char *p = line;
+        while (*p == ' ' || *p == '\t')
+            ++p;
+        if (*p == '\0' || *p == '#')
             continue;
 
-        eq = strchr(trimmed, '=');
-        if (!eq) {
-            fprintf(stderr, "Warning: invalid keymap line (missing '='): %s\n", trimmed);
+        char *eq = strchr(p, '=');
+        if (!eq)
             continue;
-        }
-
         *eq = '\0';
-        left = trim_whitespace(trimmed);
-        right = trim_whitespace(eq + 1);
 
-        if (left[0] == '\0' || right[0] == '\0') {
-            fprintf(stderr, "Warning: invalid keymap line (empty side)\n");
+        char *sc_name = p;
+        char *btn_name = eq + 1;
+
+        /* trim whitespace */
+        size_t sl = strlen(sc_name);
+        while (sl > 0 && (sc_name[sl - 1] == ' ' || sc_name[sl - 1] == '\t'))
+            sc_name[--sl] = '\0';
+        while (*btn_name == ' ' || *btn_name == '\t')
+            ++btn_name;
+
+        SDL_Scancode sc = SDL_GetScancodeFromName(sc_name);
+        if (sc == SDL_SCANCODE_UNKNOWN) {
+            fprintf(stderr, "Warning: unknown scancode '%s' in keymap\n", sc_name);
+            continue;
+        }
+        unsigned btn = parse_button_name(btn_name);
+        if (btn == KEYMAP_UNMAPPED) {
+            fprintf(stderr, "Warning: unknown button '%s' in keymap\n", btn_name);
             continue;
         }
 
-        scancode = SDL_GetScancodeFromName(left);
-        if (scancode == SDL_SCANCODE_UNKNOWN) {
-            fprintf(stderr, "Warning: unknown SDL scancode name: %s\n", left);
-            continue;
-        }
-
-        for (j = 0; j < sizeof(g_button_names) / sizeof(g_button_names[0]); ++j) {
-            if (strcmp(right, g_button_names[j].name) == 0) {
-                retro_id = g_button_names[j].id;
-                break;
-            }
-        }
-
-        if (retro_id == KEYMAP_UNMAPPED) {
-            fprintf(stderr, "Warning: unknown RetroPad button name: %s\n", right);
-            continue;
-        }
-
-        if ((unsigned)scancode < SDL_SCANCODE_COUNT)
-            g_scancode_to_retro[scancode] = (uint8_t)retro_id;
-
+        g_scancode_to_retro[sc] = (uint8_t)btn;
         loaded++;
     }
 
     fclose(fp);
-    fprintf(stderr, "Loaded %u keymap entries from %s\n", loaded, path);
+    fprintf(stderr, "Loaded %zu keymap entries from %s\n", loaded, path);
     return true;
 }
 
 void input_free_keymap(void)
 {
-    build_scancode_table();
+    build_scancode_table(); /* resets to built-in defaults */
 }
 
 /* ------------------------------------------------------------------ */
@@ -319,12 +299,13 @@ void input_process_event(const SDL_Event *event)
 
     if (!event)
         return;
-
     if (event->type != SDL_EVENT_KEY_DOWN && event->type != SDL_EVENT_KEY_UP)
         return;
 
     if (!g_scancode_table_built)
         build_scancode_table();
+    if (!g_retro_key_table_built)
+        build_retro_key_table();
 
     if (!g_retro_key_table_built)
         build_retro_key_table();
@@ -333,26 +314,29 @@ void input_process_event(const SDL_Event *event)
     if ((unsigned)scancode >= SDL_SCANCODE_COUNT)
         return;
 
+    pressed = (event->type == SDL_EVENT_KEY_DOWN);
+
+    /* 1. Joypad mapping takes priority. */
     uint8_t retro_id = g_scancode_to_retro[scancode];
     if (retro_id != KEYMAP_UNMAPPED) {
-        pressed = (event->type == SDL_EVENT_KEY_DOWN);
         g_frontend.joypad_state[retro_id] = pressed ? 1 : 0;
         return;
     }
 
+    /* 2. Not mapped to joypad: send to keyboard callback if registered. */
     if (g_frontend.keyboard_callback.callback) {
-        unsigned retro_key = g_sdl_to_retro_key[scancode];
-        enum retro_mod mod = RETROKMOD_NONE;
-        SDL_Keymod sdl_mod = event->key.mod;
+        enum retro_key rk = g_sdl_to_retro_key[scancode];
+        if (rk != RETROK_UNKNOWN) {
+            enum retro_mod mod = RETROKMOD_NONE;
+            SDL_Keymod sdl_mod = event->key.mod;
+            if (sdl_mod & SDL_KMOD_SHIFT) mod |= RETROKMOD_SHIFT;
+            if (sdl_mod & SDL_KMOD_CTRL)  mod |= RETROKMOD_CTRL;
+            if (sdl_mod & SDL_KMOD_ALT)   mod |= RETROKMOD_ALT;
+            if (sdl_mod & SDL_KMOD_GUI)   mod |= RETROKMOD_META;
 
-        if (sdl_mod & SDL_KMOD_SHIFT) mod |= RETROKMOD_SHIFT;
-        if (sdl_mod & SDL_KMOD_CTRL)  mod |= RETROKMOD_CTRL;
-        if (sdl_mod & SDL_KMOD_ALT)   mod |= RETROKMOD_ALT;
-        if (sdl_mod & SDL_KMOD_GUI)   mod |= RETROKMOD_META;
-
-        pressed = (event->type == SDL_EVENT_KEY_DOWN);
-        g_frontend.keyboard_callback.callback(
-            pressed, retro_key, (uint32_t)event->key.key, mod);
+            g_frontend.keyboard_callback.callback(
+                pressed, rk, (uint32_t)event->key.key, mod);
+        }
     }
 }
 

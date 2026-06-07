@@ -16,6 +16,7 @@
 #include "video_sw.h"
 #include "video_gl.h"
 #include "frontend.h"
+#include "core.h"
 
 #ifdef PURERETRO_VULKAN_ENABLED
 #include "video_vk.h"
@@ -229,6 +230,25 @@ bool video_resize(unsigned width, unsigned height)
     if (!v->backend || !v->backend_ctx)
         return false;
     return v->backend->resize(v->backend_ctx, v->window, width, height);
+}
+
+void video_update_geometry(unsigned base_width, unsigned base_height,
+                           unsigned max_width, unsigned max_height,
+                           float aspect_ratio)
+{
+    g_av_info.geometry.base_width   = base_width;
+    g_av_info.geometry.base_height  = base_height;
+    g_av_info.geometry.max_width    = max_width;
+    g_av_info.geometry.max_height   = max_height;
+    g_av_info.geometry.aspect_ratio = aspect_ratio;
+
+    if (g_frontend.video.hw_render_enabled) {
+        video_resize(max_width, max_height);
+    }
+
+    fprintf(stderr, "Geometry updated: %ux%u (max %ux%u) aspect %.3f\n",
+            base_width, base_height, max_width, max_height,
+            aspect_ratio > 0.0f ? aspect_ratio : 0.0f);
 }
 
 bool video_get_hw_render_interface(const struct retro_hw_render_interface **out)

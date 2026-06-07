@@ -16,6 +16,7 @@
 #include "video.h"
 #include "audio.h"
 #include "input.h"
+#include "vfs.h"
 
 struct core_functions g_core;
 struct retro_system_av_info g_av_info;
@@ -157,7 +158,7 @@ void core_unload(void)
         g_frontend.rom_size = 0;
     }
 
-    variable_table_clear(&g_frontend.variables);
+    core_options_table_clear(&g_frontend.core_options);
     variable_table_clear(&g_frontend.disk_overrides);
     variable_table_clear(&g_frontend.cli_overrides);
 
@@ -256,6 +257,65 @@ static bool require_data(unsigned cmd, const void *data)
         return false;
     }
     return true;
+}
+
+static bool add_options_from_v1_defs(const struct retro_core_option_definition *defs)
+{
+    bool ok = true;
+    for (const struct retro_core_option_definition *def = defs; def && def->key; ++def) {
+        const char *values[RETRO_NUM_CORE_OPTION_VALUES_MAX + 1];
+        size_t val_count = 0;
+        for (size_t i = 0; i < RETRO_NUM_CORE_OPTION_VALUES_MAX; ++i) {
+            if (!def->values[i].value)
+                break;
+            values[val_count++] = def->values[i].value;
+        }
+        values[val_count] = NULL;
+        if (!core_options_table_add(&g_frontend.core_options,
+                                    def->key, def->desc, def->info,
+                                    values, def->default_value)) {
+            ok = false;
+            break;
+        }
+    }
+    return ok;
+}
+
+static bool add_options_from_v2_defs(const struct retro_core_option_v2_definition *defs)
+{
+    bool ok = true;
+    for (const struct retro_core_option_v2_definition *def = defs; def && def->key; ++def) {
+        const char *values[RETRO_NUM_CORE_OPTION_VALUES_MAX + 1];
+        size_t val_count = 0;
+        for (size_t i = 0; i < RETRO_NUM_CORE_OPTION_VALUES_MAX; ++i) {
+            if (!def->values[i].value)
+                break;
+            values[val_count++] = def->values[i].value;
+        }
+        values[val_count] = NULL;
+        if (!core_options_table_add(&g_frontend.core_options,
+                                    def->key, def->desc, def->info,
+                                    values, def->default_value)) {
+            ok = false;
+            break;
+        }
+    }
+    return ok;
+}
+
+static size_t seed_disk_overrides_from_defaults(void)
+{
+    size_t seeded = 0;
+    size_t total = core_options_table_count(&g_frontend.core_options);
+    for (size_t i = 0; i < total; ++i) {
+        const struct core_option *opt =
+            core_options_table_at(&g_frontend.core_options, i);
+        if (variable_table_get(&g_frontend.disk_overrides, opt->key))
+            continue;
+        if (variable_table_set(&g_frontend.disk_overrides, opt->key, opt->default_value))
+            seeded++;
+    }
+    return seeded;
 }
 
 bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
@@ -380,14 +440,12 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
             return true;
         }
 
-        const char *raw = variable_table_get(&g_frontend.variables, var->key);
-        if (!raw)
+        const struct core_option *opt =
+            core_options_table_get(&g_frontend.core_options, var->key);
+        if (!opt)
             return false;
 
-        static char fallback_buf[256];
-        if (!core_var_parse_default(raw, fallback_buf, sizeof(fallback_buf)))
-            return false;
-        var->value = fallback_buf;
+        var->value = opt->current_value ? opt->current_value : opt->default_value;
         return true;
     }
 
@@ -396,28 +454,76 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         if (!vars)
             return false;
 
-        variable_table_clear(&g_frontend.variables);
+        core_options_table_clear(&g_frontend.core_options);
 
         bool ok = true;
         for (const struct retro_variable *v = vars; v && v->key; ++v) {
-            if (!variable_table_set(&g_frontend.variables, v->key, v->value)) {
-                ok = false;
-                break;
-            }
-        }
-
-        size_t seeded = 0;
-        size_t total = variable_table_count(&g_frontend.variables);
-        for (size_t i = 0; i < total; ++i) {
-            const struct retro_variable *iv =
-                variable_table_at(&g_frontend.variables, i);
-            if (variable_table_get(&g_frontend.disk_overrides, iv->key))
-                continue;
+            char desc[256];
+            core_var_parse_description(v->value, desc, sizeof(desc));
 
             char def[256];
-            if (!core_var_parse_default(iv->value, def, sizeof(def)))
+            core_var_parse_default(v->value, def, sizeof(def));
+
+            const char *choices = core_var_choices_begin(v->value);
+            const char *values[64];
+            size_t val_count = 0;
+
+            if (choices) {
+                const char *p = choices;
+                while (*p) {
+                    if (val_count >= 63) {
+                        ok = false;
+                        break;
+                    }
+                    const char *end = p;
+                    while (*end && *end != '|')
+                        ++end;
+                    size_t len = (size_t)(end - p);
+                    char *choice = malloc(len + 1);
+                    if (!choice) {
+                        ok = false;
+                        break;
+                    }
+                    memcpy(choice, p, len);
+                    choice[len] = '\0';
+                    values[val_count++] = choice;
+                    if (*end == '|')
+                        ++end;
+                    p = end;
+                }
+            }
+
+            if (!ok) {
+                for (size_t i = 0; i < val_count; ++i)
+                    free((char *)values[i]);
+                break;
+            }
+            values[val_count] = NULL;
+
+            if (!core_options_table_add(&g_frontend.core_options,
+                                        v->key, desc, NULL, values, def)) {
+                ok = false;
+            }
+
+            for (size_t i = 0; i < val_count; ++i)
+                free((char *)values[i]);
+
+            if (!ok)
+                break;
+        }
+
+        if (!ok)
+            core_options_table_clear(&g_frontend.core_options);
+
+        size_t seeded = 0;
+        size_t total = core_options_table_count(&g_frontend.core_options);
+        for (size_t i = 0; i < total; ++i) {
+            const struct core_option *opt =
+                core_options_table_at(&g_frontend.core_options, i);
+            if (variable_table_get(&g_frontend.disk_overrides, opt->key))
                 continue;
-            if (variable_table_set(&g_frontend.disk_overrides, iv->key, def))
+            if (variable_table_set(&g_frontend.disk_overrides,
+                                   opt->key, opt->default_value))
                 seeded++;
         }
 
@@ -450,6 +556,12 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
 
     case RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE:
         return false;
+
+    case RETRO_ENVIRONMENT_GET_INPUT_BITMASKS:
+        if (!require_data(cmd, data))
+            return false;
+        *(bool *)data = true;
+        return true;
 
     case RETRO_ENVIRONMENT_GET_INPUT_DEVICE_CAPABILITIES:
         if (!require_data(cmd, data))
@@ -494,6 +606,17 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
                 dir ? dir : "(null)");
         return true;
 
+    case RETRO_ENVIRONMENT_SET_GEOMETRY: {
+        if (!require_data(cmd, data))
+            return false;
+        const struct retro_game_geometry *geo =
+            (const struct retro_game_geometry *)data;
+        video_update_geometry(geo->base_width, geo->base_height,
+                              geo->max_width, geo->max_height,
+                              geo->aspect_ratio);
+        return true;
+    }
+
     case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO: {
         if (!require_data(cmd, data))
             return false;
@@ -516,8 +639,19 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
     case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY:
         return false;
 
-    case RETRO_ENVIRONMENT_SET_VARIABLE:
-        return false;
+    case RETRO_ENVIRONMENT_SET_VARIABLE: {
+        if (!require_data(cmd, data))
+            return false;
+        const struct retro_variable *var = (const struct retro_variable *)data;
+        if (!var->key || !var->value)
+            return false;
+        if (!core_options_table_set_value(&g_frontend.core_options,
+                                          var->key, var->value))
+            return false;
+        if (!variable_table_set(&g_frontend.disk_overrides, var->key, var->value))
+            return false;
+        return true;
+    }
 
     case RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE & ~RETRO_ENVIRONMENT_EXPERIMENTAL:
         if (!require_data(cmd, data))
@@ -540,18 +674,106 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         return true;
     }
 
-    case RETRO_ENVIRONMENT_GET_MESSAGE_INTERFACE_VERSION:
+    case RETRO_ENVIRONMENT_GET_VFS_INTERFACE: {
         if (!require_data(cmd, data))
             return false;
-        *(unsigned *)data = 1;
+        struct retro_vfs_interface_info *info =
+            (struct retro_vfs_interface_info *)data;
+        if (info->required_interface_version > 1)
+            return false;
+        info->iface = vfs_get_interface();
+        info->required_interface_version = 1;
+        return true;
+    }
+
+    case RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION:
+        if (!require_data(cmd, data))
+            return false;
+        *(unsigned *)data = 2;
         return true;
 
-    case RETRO_ENVIRONMENT_SET_MESSAGE_EXT: {
+    case RETRO_ENVIRONMENT_SET_CORE_OPTIONS: {
         if (!require_data(cmd, data))
             return false;
-        const struct retro_message_ext *msg =
-            (const struct retro_message_ext *)data;
-        fprintf(stderr, "[CORE] %s\n", msg->msg);
+        const struct retro_core_option_definition *defs =
+            (const struct retro_core_option_definition *)data;
+        core_options_table_clear(&g_frontend.core_options);
+        bool ok = add_options_from_v1_defs(defs);
+        if (!ok) {
+            core_options_table_clear(&g_frontend.core_options);
+            return false;
+        }
+        size_t seeded = seed_disk_overrides_from_defaults();
+        size_t total = core_options_table_count(&g_frontend.core_options);
+        fprintf(stderr, "Core registered %zu options (%zu seeded from defaults)\n",
+                total, seeded);
+        return true;
+    }
+
+    case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL: {
+        if (!require_data(cmd, data))
+            return false;
+        const struct retro_core_options_intl *opts =
+            (const struct retro_core_options_intl *)data;
+        core_options_table_clear(&g_frontend.core_options);
+        bool ok = true;
+        if (opts->us)
+            ok = add_options_from_v1_defs(opts->us);
+        if (!ok) {
+            core_options_table_clear(&g_frontend.core_options);
+            return false;
+        }
+        size_t seeded = seed_disk_overrides_from_defaults();
+        size_t total = core_options_table_count(&g_frontend.core_options);
+        fprintf(stderr, "Core registered %zu options (%zu seeded from defaults)\n",
+                total, seeded);
+        return true;
+    }
+
+    case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2: {
+        if (!require_data(cmd, data))
+            return false;
+        const struct retro_core_options_v2 *opts =
+            (const struct retro_core_options_v2 *)data;
+        core_options_table_clear(&g_frontend.core_options);
+        bool ok = add_options_from_v2_defs(opts->definitions);
+        if (!ok) {
+            core_options_table_clear(&g_frontend.core_options);
+            return false;
+        }
+        size_t seeded = seed_disk_overrides_from_defaults();
+        size_t total = core_options_table_count(&g_frontend.core_options);
+        fprintf(stderr, "Core registered %zu options (%zu seeded from defaults)\n",
+                total, seeded);
+        return true;
+    }
+
+    case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL: {
+        if (!require_data(cmd, data))
+            return false;
+        const struct retro_core_options_v2_intl *opts =
+            (const struct retro_core_options_v2_intl *)data;
+        core_options_table_clear(&g_frontend.core_options);
+        bool ok = true;
+        if (opts->us)
+            ok = add_options_from_v2_defs(opts->us->definitions);
+        if (!ok) {
+            core_options_table_clear(&g_frontend.core_options);
+            return false;
+        }
+        size_t seeded = seed_disk_overrides_from_defaults();
+        size_t total = core_options_table_count(&g_frontend.core_options);
+        fprintf(stderr, "Core registered %zu options (%zu seeded from defaults)\n",
+                total, seeded);
+        return true;
+    }
+
+    case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK: {
+        if (!require_data(cmd, data))
+            return false;
+        const struct retro_core_options_update_display_callback *cb =
+            (const struct retro_core_options_update_display_callback *)data;
+        g_frontend.core_options_update_display_callback = cb->callback;
         return true;
     }
 

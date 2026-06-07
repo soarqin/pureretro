@@ -116,7 +116,6 @@ struct frontend_state
      * Lookup order in GET_VARIABLE: cli_overrides -> disk_overrides -> default.
      * cli_overrides come from --variable CLI flags and are never persisted.
      * disk_overrides are loaded from / saved to a per-core .opt file. */
-    struct variable_table variables;
     struct core_options_table core_options;
     struct variable_table disk_overrides;
     struct variable_table cli_overrides;

@@ -34,8 +34,6 @@ static void print_usage(const char *argv0)
     fprintf(stderr, "  --variable <k=v>    Override a core option variable\n");
     fprintf(stderr, "  --portable          Portable mode: use the current directory as the\n");
     fprintf(stderr, "                      config base (system files in ./system)\n");
-    fprintf(stderr, "  --system-dir <path> Override system directory (BIOS/firmware)\n");
-    fprintf(stderr, "  --save-dir <path>   Override save directory (SRAM/memory cards)\n");
     fprintf(stderr, "  --config <path>     Load key remapping configuration file\n");
 }
 
@@ -98,24 +96,14 @@ static bool parse_args(int argc, char *argv[])
             g_frontend.no_audio = true;
         } else if (strcmp(argv[i], "--portable") == 0) {
             g_frontend.portable = true;
-        } else if (strcmp(argv[i], "--system-dir") == 0) {
+        } else if (strcmp(argv[i], "--config") == 0) {
             if (i + 1 >= argc) {
-                fprintf(stderr, "--system-dir requires a path\n");
+                fprintf(stderr, "--config requires a file path\n");
                 print_usage(argv[0]);
                 return false;
             }
             ++i;
-            free(g_frontend.system_directory);
-            g_frontend.system_directory = strdup(argv[i]);
-        } else if (strcmp(argv[i], "--save-dir") == 0) {
-            if (i + 1 >= argc) {
-                fprintf(stderr, "--save-dir requires a path\n");
-                print_usage(argv[0]);
-                return false;
-            }
-            ++i;
-            free(g_frontend.save_directory);
-            g_frontend.save_directory = strdup(argv[i]);
+            g_frontend.config_path = argv[i];
         } else if (strcmp(argv[i], "--render") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "--render requires an argument (vk, gl, or sw)\n");

@@ -53,6 +53,13 @@ bool video_negotiate_hw_context(const struct retro_hw_render_context_negotiation
  * window-resize events. Returns false only on real failure. */
 bool video_resize(unsigned width, unsigned height);
 
+/* Update geometry dimensions and aspect ratio. Called when the core
+ * sends RETRO_ENVIRONMENT_SET_GEOMETRY. Resizes the HW render target
+ * if hardware rendering is active. */
+void video_update_geometry(unsigned base_width, unsigned base_height,
+                           unsigned max_width, unsigned max_height,
+                           float aspect_ratio);
+
 /* Populate *out with a pointer to the backend-owned hardware render
  * interface (e.g. retro_hw_render_interface_vulkan for Vulkan).
  * Returns false if the active backend doesn't have one (SW, GL).

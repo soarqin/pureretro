@@ -2,6 +2,8 @@
  * PureRetro — Core option variable table implementation.
  */
 
+#define _POSIX_C_SOURCE 200809L
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -53,6 +55,8 @@ bool core_options_table_add(struct core_options_table *t,
                             const char *default_value)
 {
     if (!t || !key)
+        return false;
+    if (core_options_table_get(t, key))
         return false;
 
     if (t->count >= t->capacity) {
@@ -252,7 +256,7 @@ const char *variable_table_get(const struct variable_table *t, const char *key)
 
     struct retro_variable key_var = { .key = (char *)key };
     const struct retro_variable *found = bsearch(&key_var,
-                                                  (void *)t->items, t->count,
+                                                  t->items, t->count,
                                                   sizeof(t->items[0]), retro_var_cmp);
     if (!found)
         return NULL;
