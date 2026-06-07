@@ -13,3 +13,4 @@ pureretro
 *.swp
 *~
 /docs/superpowers/
+.worktrees/
