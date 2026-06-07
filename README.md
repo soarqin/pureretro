@@ -77,31 +77,52 @@ cmake .. -DPURERETRO_ENABLE_VULKAN=OFF
 
 ```bash
 # Software-rendered core
-./pureretro <core_path> <rom_path>
+./pureretro <core_path> <rom_path> [options]
 
-# Example
+# Example: NES core
 ./pureretro ./nestopia_libretro.so ./game.nes
+
+# Example: prefer Vulkan, 3x window, named player, Japanese locale
+./pureretro ./mupen64plus_next_libretro.so ./game.n64 \
+    --render vk --scale 3 --username Player1 --lang ja
 ```
 
-### Keyboard Mapping
+### Command-Line Options
 
-| Keyboard Key | RetroPad Button |
-|--------------|-----------------|
-| Arrow Keys   | D-Pad           |
-| Z            | B               |
-| X            | A               |
-| A            | Y               |
-| S            | X               |
-| Enter        | Start           |
-| Shift        | Select          |
-| Q / W        | L / R           |
+| Flag | Argument | Purpose |
+|------|----------|---------|
+| `--fullscreen`, `-f` | — | Start in fullscreen mode. |
+| `--render <api>` | `vk` / `gl` / `sw` | Hint preferred renderer (core may override). |
+| `--scale <N>` | 1–16 | Integer window scale relative to the core's base resolution. |
+| `--no-audio` | — | Disable audio output (also reflected in `GET_AUDIO_VIDEO_ENABLE`). |
+| `--variable <k=v>` | `key=value` | Override a core option. Highest priority; never persisted. |
+| `--portable` | — | Use `./system/` for the system directory instead of the user data directory. |
+| `--config <path>` | file path | Load a keymap configuration file. |
+| `--disk-index <N>` | 0–255 | Initial disc index for multi-disc content. |
+| `--lang <code>` | locale code | Language reported via `GET_LANGUAGE`. 30+ codes mapped (`en`, `ja`, `zh_cn`, `de`, ...). |
+| `--username <name>` | string | Player name reported via `GET_USERNAME`. |
+
+### Default Keyboard Mapping
+
+| Keyboard Key  | RetroPad Button |
+|---------------|-----------------|
+| Arrow Keys    | D-Pad           |
+| Z             | B               |
+| X             | A               |
+| A             | Y               |
+| S             | X               |
+| Enter         | Start           |
+| Right Shift   | Select          |
+| Q / W         | L / R           |
+
+Override the default mapping with `--config <path>` pointing to a file with `<scancode> <button>` lines (one per line; e.g. `SPACE A`).
 
 ### Window Controls
 
-| Key          | Action          |
-|--------------|-----------------|
-| F11          | Toggle Fullscreen |
-| Esc          | Quit            |
+| Key  | Action            |
+|------|-------------------|
+| F11  | Toggle Fullscreen |
+| Esc  | Quit              |
 
 ## License
 
