@@ -105,43 +105,75 @@ bool frontend_is_running(void)
 
 ## Environment Callbacks
 
-The `core.c` module implements the frontend's `retro_environment_t`. Supported callbacks (add as needed):
+The `core.c` module implements the frontend's `retro_environment_t`. The table below lists callbacks that have explicit case branches; everything else falls through to the `default` arm (logged and returns false). For the full inventory and future work, see `docs/DEVELOPMENT_PLAN.md`.
 
 | Callback | Status | Notes |
 |----------|--------|-------|
 | `SET_PIXEL_FORMAT` | ✅ Implemented | Stores negotiated format in `g_frontend.video.pixel_format`. |
 | `GET_CAN_DUPE` | ✅ Implemented | Always returns true. |
 | `SET_HW_RENDER` | ✅ Implemented | Dispatches to GL or VK renderer; returns false for unsupported types. |
-| `SET_SYSTEM_AV_INFO` | ✅ Implemented | Updates `g_av_info` and resizes the OpenGL FBO if active. |
-| `GET_HW_RENDER_INTERFACE` | ✅ Implemented | Returns populated `retro_hw_render_interface_vulkan` when Vulkan renderer is active. |
-| `GET_SYSTEM_DIRECTORY` | ✅ Implemented | Returns NULL. |
-| `GET_SAVE_DIRECTORY` | ✅ Implemented | Returns NULL. |
-| `GET_LOG_INTERFACE` | ✅ Implemented | Provides `log_stderr` callback. |
+| `SET_SYSTEM_AV_INFO` | ✅ Implemented | Updates `g_av_info` and resizes the active HW render target. |
+| `SET_GEOMETRY` | ✅ Implemented | Updates geometry + resizes the window. |
+| `GET_HW_RENDER_INTERFACE` | ✅ Implemented | Returns the populated `retro_hw_render_interface_vulkan` when Vulkan is active. |
+| `GET_PREFERRED_HW_RENDER` | ✅ Implemented | Reports the user's `--render` preference. |
+| `SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE` | ✅ Implemented | Calls the core's `create_device` callback for Vulkan. |
+| `GET_SYSTEM_DIRECTORY` | ✅ Implemented | Returns `g_frontend.system_directory` (resolved by `SDL_GetPrefPath` or `--portable`). |
+| `GET_SAVE_DIRECTORY` | ✅ Implemented | Returns `g_frontend.save_directory`, falling back to system directory. |
+| `GET_CORE_ASSETS_DIRECTORY` | ✅ Implemented | Returns NULL (placeholder). |
+| `GET_LOG_INTERFACE` | ✅ Implemented | Provides a `log_stderr` callback. |
+| `GET_VFS_INTERFACE` | ✅ Implemented | v1 stdio-backed VFS (see `vfs.c`). |
 | `SHUTDOWN` | ✅ Implemented | Sets `g_frontend.running = false`. |
 | `SET_SUPPORT_NO_GAME` | ✅ Implemented | Returns true. |
 | `SET_MESSAGE` | ✅ Implemented | Prints to stderr. |
-| `GET_VARIABLE` / `SET_VARIABLES` | ✅ Implemented | Stores variables sorted by key; returns the first option as the default. Supports `--variable key=value` CLI overrides. Disk-persisted overrides live in `<system_directory>/<core>.opt`; CLI overrides win over disk values and are never written back. |
+| `GET_VARIABLE` / `SET_VARIABLES` | ✅ Implemented | Lookup: `cli_overrides` -> `disk_overrides` -> default. |
+| `SET_CORE_OPTIONS` / `SET_CORE_OPTIONS_INTL` / `SET_CORE_OPTIONS_V2` / `SET_CORE_OPTIONS_V2_INTL` | ✅ Implemented | All definition formats normalize to `core_options_table`. |
+| `SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK` | ✅ Implemented | Stores the callback for later use. |
+| `SET_VARIABLE` | ✅ Implemented | Updates `core_options` + `disk_overrides` for runtime persistence. |
 | `GET_VARIABLE_UPDATE` | ✅ Implemented | Always returns false. |
+| `GET_CORE_OPTIONS_VERSION` | ✅ Implemented | Returns 2. |
 | `GET_LIBRETRO_PATH` | ✅ Implemented | Returns `g_frontend.core_path`. |
-| `SET_ROTATION` | 📝 Stub | Returns false. |
+| `GET_LANGUAGE` | ✅ Implemented | Returns `g_frontend.language` (default `ENGLISH`, overridable via `--lang`). |
+| `GET_USERNAME` | ✅ Implemented | Returns `g_frontend.username` (set via `--username`); returns false when unset. |
 | `GET_OVERSCAN` | ✅ Implemented | Returns false. |
+| `SET_KEYBOARD_CALLBACK` | ✅ Implemented | Stores the keyboard callback in `g_frontend.keyboard_callback`. |
+| `GET_INPUT_BITMASKS` | ✅ Implemented | Returns true; `core_input_state` answers JOYPAD_MASK. |
+| `GET_INPUT_DEVICE_CAPABILITIES` | ✅ Implemented | Reports JOYPAD only. |
+| `SET_CONTROLLER_INFO` | ✅ Implemented | Deep-copies per-port descriptions into `g_frontend.controller_ports[]`. |
+| `SET_DISK_CONTROL_EXT_INTERFACE` | ✅ Implemented | Stores callbacks + applies `--disk-index <N>`. |
+| `GET_DISK_CONTROL_INTERFACE_VERSION` | ✅ Implemented | Returns 1. |
+| `GET_CURRENT_SOFTWARE_FRAMEBUFFER` | ✅ Implemented | Zero-copy SW path: locked SDL_Texture pixels; present() detects match and unlocks. |
+| `GET_AUDIO_VIDEO_ENABLE` | ✅ Implemented | Bit 0 = audio (reflected via `--no-audio`), bit 1 = video (always on). |
+| `GET_FASTFORWARDING` | ✅ Implemented | Always returns false (no fast-forward). |
+| `GET_TARGET_REFRESH_RATE` | ✅ Implemented | Reports real display refresh rate via `SDL_GetCurrentDisplayMode` (fallback 60Hz). |
+| `SET_DISK_CONTROL_INTERFACE` | 📝 Stub | Returns false (legacy; 7-field bridge to EXT planned). |
+| `SET_ROTATION` | 📝 Stub | Returns false. |
 | `SET_PERFORMANCE_LEVEL` | 📝 Stub | Returns false. |
 | `SET_INPUT_DESCRIPTORS` | 📝 Stub | Returns false. |
-| `SET_KEYBOARD_CALLBACK` | 📝 Stub | Returns false. |
-| `SET_DISK_CONTROL_INTERFACE` | 📝 Stub | Returns false. |
 | `SET_FRAME_TIME_CALLBACK` | 📝 Stub | Returns false. |
 | `SET_AUDIO_CALLBACK` | 📝 Stub | Returns false. |
-| `GET_RUMBLE_INTERFACE` | 📝 Stub | Returns false. |
-| `GET_INPUT_DEVICE_CAPABILITIES` | ✅ Implemented | Reports joypad support only. |
-| `GET_SENSOR_INTERFACE` | 📝 Stub | Returns false. |
-| `GET_CAMERA_INTERFACE` | 📝 Stub | Returns false. |
-| `GET_PERF_INTERFACE` | 📝 Stub | Returns false. |
-| `GET_LOCATION_INTERFACE` | 📝 Stub | Returns false. |
-| `GET_CORE_ASSETS_DIRECTORY` | ✅ Implemented | Returns NULL. |
-| `GET_LANGUAGE` | ✅ Implemented | Returns `RETRO_LANGUAGE_ENGLISH`. |
-| `SET_CORE_OPTIONS_DISPLAY` | 📝 Stub | Returns false. |
-| `SET_VARIABLE` | 📝 Stub | Returns false. |
-| `SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE` | ✅ Implemented | Calls core's `create_device` callback for Vulkan. |
+| `SET_CORE_OPTIONS_DISPLAY` | 📝 Stub | Returns false (no GUI). |
+| `GET_RUMBLE_INTERFACE` | 📝 Stub (Not planned) | Returns false. |
+| `GET_SENSOR_INTERFACE` | 📝 Stub (Not planned) | Returns false. |
+| `GET_CAMERA_INTERFACE` | 📝 Stub (Not planned) | Returns false. |
+| `GET_PERF_INTERFACE` | 📝 Stub (Not planned) | Returns false. |
+| `GET_LOCATION_INTERFACE` | 📝 Stub (Not planned) | Returns false. |
+
+## Command-Line Flags
+
+`main.c` parses these after `<core> [<content>]`:
+
+| Flag | Argument | Purpose |
+|------|----------|---------|
+| `--fullscreen`, `-f` | — | Start in fullscreen mode. |
+| `--render <api>` | `vk` / `gl` / `sw` | Hint for `GET_PREFERRED_HW_RENDER`. |
+| `--scale <N>` | 1–16 | Integer window scale. |
+| `--no-audio` | — | Disable audio (`GET_AUDIO_VIDEO_ENABLE` bit 0 cleared). |
+| `--variable <k=v>` | `key=value` | CLI override for a core option (highest priority). |
+| `--portable` | — | Use `./system/` for system directory. |
+| `--config <path>` | file path | Keymap configuration. |
+| `--disk-index <N>` | 0–255 | Initial disc index for multi-disc content. |
+| `--lang <code>` | locale code | Language for `GET_LANGUAGE` (30+ codes supported). |
+| `--username <name>` | string | Player name for `GET_USERNAME`. |
 
 ## Cross-Platform Rules
 
