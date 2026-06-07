@@ -119,8 +119,8 @@ The `core.c` module implements the frontend's `retro_environment_t`. The table b
 | `SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE` | ✅ Implemented | Calls the core's `create_device` callback for Vulkan. |
 | `GET_SYSTEM_DIRECTORY` | ✅ Implemented | Returns `g_frontend.system_directory` (resolved by `SDL_GetPrefPath` or `--portable`). |
 | `GET_SAVE_DIRECTORY` | ✅ Implemented | Returns `g_frontend.save_directory`, falling back to system directory. |
-| `GET_CORE_ASSETS_DIRECTORY` | ✅ Implemented | Returns NULL (placeholder). |
-| `GET_LOG_INTERFACE` | ✅ Implemented | Provides a `log_stderr` callback. |
+| `GET_CORE_ASSETS_DIRECTORY` | ✅ Implemented | Returns `g_frontend.core_assets_directory` (settable via `--core-assets-dir`). |
+| `GET_LOG_INTERFACE` | ✅ Implemented | Bridges core log messages to the loglevel-aware logger (`src/log.c`). |
 | `GET_VFS_INTERFACE` | ✅ Implemented | v1 stdio-backed VFS (see `vfs.c`). |
 | `SHUTDOWN` | ✅ Implemented | Sets `g_frontend.running = false`. |
 | `SET_SUPPORT_NO_GAME` | ✅ Implemented | Returns true. |
@@ -145,9 +145,15 @@ The `core.c` module implements the frontend's `retro_environment_t`. The table b
 | `GET_AUDIO_VIDEO_ENABLE` | ✅ Implemented | Bit 0 = audio (reflected via `--no-audio`), bit 1 = video (always on). |
 | `GET_FASTFORWARDING` | ✅ Implemented | Always returns false (no fast-forward). |
 | `GET_TARGET_REFRESH_RATE` | ✅ Implemented | Reports real display refresh rate via `SDL_GetCurrentDisplayMode` (fallback 60Hz). |
-| `SET_DISK_CONTROL_INTERFACE` | 📝 Stub | Returns false (legacy; 7-field bridge to EXT planned). |
+| `GET_INPUT_MAX_USERS` | ✅ Implemented | Returns 1 (keyboard-only port 0). |
+| `GET_TARGET_SAMPLE_RATE` | ✅ Implemented | Returns core's reported sample rate (fallback 48000). |
+| `SET_AUDIO_BUFFER_STATUS_CALLBACK` | ✅ Implemented | Stores callback; invoked per frame before `retro_run()`. |
+| `SET_MINIMUM_AUDIO_LATENCY` | ✅ Implemented | Adjusts queue depth cap (no SDL audio reinit). |
+| `GET_PLAYLIST_DIRECTORY` | ✅ Implemented | Returns `g_frontend.playlist_directory` (settable via `--playlist-dir`). |
+| `GET_FILE_BROWSER_START_DIRECTORY` | ✅ Implemented | Returns `g_frontend.file_browser_directory` (settable via `--file-browser-dir`). |
+| `SET_DISK_CONTROL_INTERFACE` | ✅ Implemented | Legacy 7-field struct bridged to the EXT path via memcpy. |
 | `SET_ROTATION` | 📝 Stub | Returns false. |
-| `SET_PERFORMANCE_LEVEL` | 📝 Stub | Returns false. |
+| `SET_PERFORMANCE_LEVEL` | ✅ Implemented | Logs the core's hint at INFO level. |
 | `SET_INPUT_DESCRIPTORS` | 📝 Stub | Returns false. |
 | `SET_FRAME_TIME_CALLBACK` | 📝 Stub | Returns false. |
 | `SET_AUDIO_CALLBACK` | 📝 Stub | Returns false. |
@@ -174,6 +180,22 @@ The `core.c` module implements the frontend's `retro_environment_t`. The table b
 | `--disk-index <N>` | 0–255 | Initial disc index for multi-disc content. |
 | `--lang <code>` | locale code | Language for `GET_LANGUAGE` (30+ codes supported). |
 | `--username <name>` | string | Player name for `GET_USERNAME`. |
+| `--core-assets-dir <path>` | dir path | Returned by `GET_CORE_ASSETS_DIRECTORY`. |
+| `--playlist-dir <path>` | dir path | Returned by `GET_PLAYLIST_DIRECTORY`. |
+| `--file-browser-dir <path>` | dir path | Returned by `GET_FILE_BROWSER_START_DIRECTORY`. |
+| `--log-level <lvl>` | `debug` / `info` / `warn` / `error` | Override logger threshold (also `PURERETRO_LOG` env var). Default `info`. |
+
+## Logging
+
+All frontend code and forwarded core log messages route through the
+loglevel-aware logger in `src/log.c`. The format is
+`[HH:MM:SS.mmm] [LEVEL] [SRC] message`, where `SRC` is `FRONTEND` for
+in-frontend messages and `CORE` for those forwarded via
+`RETRO_ENVIRONMENT_GET_LOG_INTERFACE`. The active level is chosen as
+`--log-level` > `PURERETRO_LOG` env var > `info` default. Messages below
+the active level are dropped cheaply. Internal code uses the
+`LOG_DEBUG / LOG_INFO / LOG_WARN / LOG_ERROR` macros from `log.h`; pre-init
+CLI-usage output remains direct `fprintf(stderr, ...)`.
 
 ## Cross-Platform Rules
 

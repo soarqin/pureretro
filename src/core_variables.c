@@ -10,6 +10,7 @@
 #include "core_variables.h"
 #include "core_variables_parse.h"
 #include "frontend.h"
+#include "log.h"
 
 /* ------------------------------------------------------------------ */
 /* core_options_table                                                  */
@@ -405,7 +406,7 @@ bool core_variables_load(const char *path)
     }
     fclose(fp);
 
-    fprintf(stderr, "Loaded %zu variable override(s) from %s\n", loaded, path);
+    LOG_INFO("Loaded %zu variable override(s) from %s", loaded, path);
     return true;
 }
 
@@ -434,8 +435,7 @@ bool core_variables_save(const char *path)
 
     FILE *fp = fopen(path, "w");
     if (!fp) {
-        fprintf(stderr, "Failed to open %s for writing: cannot persist variables\n",
-                path);
+        LOG_ERROR("Failed to open %s for writing: cannot persist variables", path);
         return false;
     }
 
@@ -500,7 +500,7 @@ bool core_variables_save(const char *path)
     }
 
     fclose(fp);
-    fprintf(stderr, "Saved %zu variable(s) to %s\n", written, path);
+    LOG_INFO("Saved %zu variable(s) to %s", written, path);
     return true;
 }
 
@@ -509,8 +509,8 @@ void core_variable_override(const char *key, const char *value)
     if (!key || !value)
         return;
     if (!variable_table_set(&g_frontend.cli_overrides, key, value)) {
-        fprintf(stderr, "Failed to store variable override: %s=%s\n", key, value);
+        LOG_ERROR("Failed to store variable override: %s=%s", key, value);
     } else {
-        fprintf(stderr, "Variable override (CLI): %s=%s\n", key, value);
+        LOG_INFO("Variable override (CLI): %s=%s", key, value);
     }
 }

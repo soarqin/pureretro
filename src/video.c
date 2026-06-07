@@ -17,6 +17,7 @@
 #include "video_gl.h"
 #include "frontend.h"
 #include "core.h"
+#include "log.h"
 
 #ifdef PURERETRO_VULKAN_ENABLED
 #include "video_vk.h"
@@ -94,10 +95,9 @@ bool video_init(const char *title, unsigned width, unsigned height)
     v->renderer = VIDEO_RENDERER_SW;
     v->pixel_format = RETRO_PIXEL_FORMAT_0RGB1555;
 
-    fprintf(stderr,
-            "Video initialized: default renderer is %s "
-            "(window will be created when core selects renderer)\n",
-            renderer_name(v->renderer));
+    LOG_INFO("Video initialized: default renderer is %s "
+             "(window will be created when core selects renderer)",
+             renderer_name(v->renderer));
 
     return true;
 }
@@ -145,8 +145,8 @@ void video_process_event(const SDL_Event *event)
     unsigned new_h = (unsigned)event->window.data2;
 
     if (!v->backend->resize(v->backend_ctx, v->window, new_w, new_h)) {
-        fprintf(stderr, "Backend %s failed to resize after window resize\n",
-                v->backend->name);
+        LOG_ERROR("Backend %s failed to resize after window resize",
+                  v->backend->name);
         if (v->backend->id == VIDEO_RENDERER_VULKAN)
             g_frontend.running = false;
     }
@@ -157,18 +157,17 @@ bool video_set_hw_render(struct retro_hw_render_callback *hw)
     struct video_state *v = &g_frontend.video;
     const struct video_backend *new_backend = find_backend(hw->context_type);
 
-    fprintf(stderr, "Core requested HW context: type=%d\n",
-            (int)hw->context_type);
+    LOG_INFO("Core requested HW context: type=%d",
+             (int)hw->context_type);
     g_frontend.hw_render_requested = true;
 
     if (!new_backend) {
-        fprintf(stderr, "Unsupported HW context type: %d\n",
-                (int)hw->context_type);
+        LOG_ERROR("Unsupported HW context type: %d",
+                  (int)hw->context_type);
         if (g_frontend.preferred_renderer != VIDEO_RENDERER_NONE) {
-            fprintf(stderr,
-                    "  user preferred '%s' but core requested an "
-                    "unsupported context\n",
-                    renderer_name(g_frontend.preferred_renderer));
+            LOG_WARN("  user preferred '%s' but core requested an "
+                     "unsupported context",
+                     renderer_name(g_frontend.preferred_renderer));
         }
         return false;
     }
@@ -195,19 +194,19 @@ bool video_set_hw_render(struct retro_hw_render_callback *hw)
         compute_window_size(&win_w, &win_h);
         v->window = SDL_CreateWindow("PureRetro", win_w, win_h, flags);
         if (!v->window) {
-            fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
+            LOG_ERROR("SDL_CreateWindow failed: %s", SDL_GetError());
             return false;
         }
-        fprintf(stderr, "Created window %dx%d with flags 0x%llx for renderer %s\n",
-                win_w, win_h, (unsigned long long)flags, new_backend->name);
+        LOG_INFO("Created window %dx%d with flags 0x%llx for renderer %s",
+                 win_w, win_h, (unsigned long long)flags, new_backend->name);
     }
 
     void *ctx = NULL;
     struct retro_hw_render_callback *hw_arg =
         (new_backend->id == VIDEO_RENDERER_SW) ? NULL : hw;
     if (!new_backend->init(v->window, hw_arg, &ctx)) {
-        fprintf(stderr, "Backend %s init failed; falling back to software\n",
-                new_backend->name);
+        LOG_ERROR("Backend %s init failed; falling back to software",
+                  new_backend->name);
         if (sw_backend.init(v->window, NULL, &ctx)) {
             v->backend = &sw_backend;
             v->backend_ctx = ctx;
@@ -228,12 +227,12 @@ bool video_set_hw_render(struct retro_hw_render_callback *hw)
         memcpy(&v->hw, hw, sizeof(v->hw));
     }
 
-    fprintf(stderr, "Active renderer: %s\n", new_backend->name);
+    LOG_INFO("Active renderer: %s", new_backend->name);
     if (g_frontend.preferred_renderer != VIDEO_RENDERER_NONE &&
         g_frontend.preferred_renderer != new_backend->id) {
-        fprintf(stderr, "  warning: user preferred '%s' but core chose '%s'\n",
-                renderer_name(g_frontend.preferred_renderer),
-                new_backend->name);
+        LOG_WARN("  warning: user preferred '%s' but core chose '%s'",
+                 renderer_name(g_frontend.preferred_renderer),
+                 new_backend->name);
     }
     return true;
 }
@@ -288,9 +287,9 @@ void video_update_geometry(unsigned base_width, unsigned base_height,
     /* Resize the window to match the new base resolution. */
     video_resize_window_to_geometry();
 
-    fprintf(stderr, "Geometry updated: %ux%u (max %ux%u) aspect %.3f\n",
-            base_width, base_height, max_width, max_height,
-            aspect_ratio > 0.0f ? aspect_ratio : 0.0f);
+    LOG_INFO("Geometry updated: %ux%u (max %ux%u) aspect %.3f",
+             base_width, base_height, max_width, max_height,
+             aspect_ratio > 0.0f ? aspect_ratio : 0.0f);
 }
 
 void video_resize_window_to_geometry(void)
@@ -311,7 +310,7 @@ void video_resize_window_to_geometry(void)
     int win_w, win_h;
     compute_window_size(&win_w, &win_h);
     SDL_SetWindowSize(v->window, win_w, win_h);
-    fprintf(stderr, "Window resized to %dx%d\n", win_w, win_h);
+    LOG_INFO("Window resized to %dx%d", win_w, win_h);
 }
 
 bool video_get_hw_render_interface(const struct retro_hw_render_interface **out)
@@ -342,11 +341,11 @@ bool video_ensure_software_renderer(void)
         v->window = SDL_CreateWindow("PureRetro", win_w, win_h,
                                      sw_backend.window_flags());
         if (!v->window) {
-            fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
+            LOG_ERROR("SDL_CreateWindow failed: %s", SDL_GetError());
             return false;
         }
-        fprintf(stderr, "Created window %dx%d for software renderer\n",
-                win_w, win_h);
+        LOG_INFO("Created window %dx%d for software renderer",
+                 win_w, win_h);
     }
 
     void *ctx = NULL;

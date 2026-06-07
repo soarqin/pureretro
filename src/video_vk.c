@@ -14,6 +14,7 @@
 #include "video_backend.h"
 #include "frontend.h"
 #include "core.h"
+#include "log.h"
 
 #ifdef PURERETRO_VULKAN_ENABLED
 
@@ -56,7 +57,7 @@ static const char *vk_result_string(VkResult r)
 static bool vk_check(VkResult r, const char *op)
 {
     if (r != VK_SUCCESS) {
-        fprintf(stderr, "Vulkan error in %s: %s (%d)\n", op, vk_result_string(r), (int)r);
+        LOG_ERROR("Vulkan error in %s: %s (%d)", op, vk_result_string(r), (int)r);
         return false;
     }
     return true;
@@ -67,7 +68,7 @@ static bool create_instance(struct video_vk_context *ctx, bool debug)
     Uint32 ext_count = 0;
     const char * const *sdl_exts = SDL_Vulkan_GetInstanceExtensions(&ext_count);
     if (!sdl_exts) {
-        fprintf(stderr, "SDL_Vulkan_GetInstanceExtensions failed: %s\n", SDL_GetError());
+        LOG_ERROR("SDL_Vulkan_GetInstanceExtensions failed: %s", SDL_GetError());
         return false;
     }
 
@@ -104,7 +105,7 @@ static bool create_instance(struct video_vk_context *ctx, bool debug)
 static bool create_surface(struct video_vk_context *ctx, SDL_Window *window)
 {
     if (!SDL_Vulkan_CreateSurface(window, ctx->instance, NULL, &ctx->surface)) {
-        fprintf(stderr, "SDL_Vulkan_CreateSurface failed: %s\n", SDL_GetError());
+        LOG_ERROR("SDL_Vulkan_CreateSurface failed: %s", SDL_GetError());
         return false;
     }
     return true;
@@ -115,7 +116,7 @@ static bool select_physical_device(struct video_vk_context *ctx)
     uint32_t count = 0;
     VkResult r = vkEnumeratePhysicalDevices(ctx->instance, &count, NULL);
     if (!vk_check(r, "vkEnumeratePhysicalDevices") || count == 0) {
-        fprintf(stderr, "No Vulkan physical devices found\n");
+        LOG_ERROR("No Vulkan physical devices found");
         return false;
     }
 
@@ -180,7 +181,7 @@ static bool select_physical_device(struct video_vk_context *ctx)
         }
     }
 
-    fprintf(stderr, "No suitable Vulkan physical device found\n");
+    LOG_ERROR("No suitable Vulkan physical device found");
     free(devices);
     return false;
 }
@@ -370,7 +371,7 @@ static bool vk_swapchain_create(struct video_vk_context *ctx, SDL_Window *window
     ctx->cmd_buffers = calloc(ctx->image_count, sizeof(VkCommandBuffer));
     if (!ctx->swapchain_images || !ctx->swapchain_views ||
         !ctx->cmd_buffers) {
-        fprintf(stderr, "Failed to allocate swapchain arrays\n");
+        LOG_ERROR("Failed to allocate swapchain arrays");
         return false;
     }
     r = vkGetSwapchainImagesKHR(ctx->device, ctx->swapchain, &ctx->image_count, ctx->swapchain_images);
@@ -870,12 +871,12 @@ bool video_vk_negotiate_device(struct video_vk_context *ctx,
                                        ctx->get_instance_proc_addr,
                                        NULL, 0, NULL, 0, &required_features);
     if (!ok) {
-        fprintf(stderr, "video_vk_negotiate_device: create_device failed\n");
+        LOG_ERROR("video_vk_negotiate_device: create_device failed");
         return false;
     }
 
-    fprintf(stderr, "video_vk_negotiate_device: create_device succeeded, device=%p, queue=%p\n",
-            (void *)retro_ctx.device, (void *)retro_ctx.queue);
+    LOG_INFO("video_vk_negotiate_device: create_device succeeded, device=%p, queue=%p",
+             (void *)retro_ctx.device, (void *)retro_ctx.queue);
     return true;
 }
 
@@ -980,7 +981,7 @@ bool video_vk_init(SDL_Window *window, struct retro_hw_render_callback *hw,
     (void)window;
     (void)hw;
     (void)out_ctx;
-    fprintf(stderr, "Vulkan support is not compiled in.\n");
+    LOG_ERROR("Vulkan support is not compiled in.");
     return false;
 }
 

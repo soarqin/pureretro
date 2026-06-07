@@ -12,6 +12,7 @@
 #include "video_gl.h"
 #include "video_backend.h"
 #include "core.h"
+#include "log.h"
 
 /* APIENTRY may not be defined on all platforms */
 #ifndef APIENTRY
@@ -74,7 +75,7 @@ static bool gl_fbo_create(struct video_gl_context *ctx, unsigned width, unsigned
     if (!glGenFramebuffers || !glGenTextures || !glBindFramebuffer ||
         !glBindTexture || !glTexImage2D || !glTexParameteri ||
         !glFramebufferTexture2D || !glCheckFramebufferStatus) {
-        fprintf(stderr, "OpenGL: Failed to load required FBO functions\n");
+        LOG_ERROR("OpenGL: Failed to load required FBO functions");
         return false;
     }
 
@@ -96,7 +97,7 @@ static bool gl_fbo_create(struct video_gl_context *ctx, unsigned width, unsigned
     if (need_depth || need_stencil) {
         if (!glGenRenderbuffers || !glBindRenderbuffer ||
             !glRenderbufferStorage || !glFramebufferRenderbuffer) {
-            fprintf(stderr, "OpenGL: Failed to load renderbuffer functions\n");
+            LOG_ERROR("OpenGL: Failed to load renderbuffer functions");
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             gl_fbo_destroy(ctx);
             return false;
@@ -138,7 +139,7 @@ static bool gl_fbo_create(struct video_gl_context *ctx, unsigned width, unsigned
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     if (status != GL_FRAMEBUFFER_COMPLETE) {
-        fprintf(stderr, "OpenGL: FBO incomplete (status 0x%x)\n", status);
+        LOG_ERROR("OpenGL: FBO incomplete (status 0x%x)", status);
         gl_fbo_destroy(ctx);
         return false;
     }
@@ -210,7 +211,7 @@ bool video_gl_init(SDL_Window *window, struct retro_hw_render_callback *hw,
     case RETRO_HW_CONTEXT_OPENGLES3:
     case RETRO_HW_CONTEXT_OPENGLES_VERSION:
 #ifdef __APPLE__
-        fprintf(stderr, "OpenGL ES not supported on macOS\n");
+        LOG_ERROR("OpenGL ES not supported on macOS");
         free(ctx);
         return false;
 #else
@@ -220,7 +221,7 @@ bool video_gl_init(SDL_Window *window, struct retro_hw_render_callback *hw,
         break;
 
     default:
-        fprintf(stderr, "Unsupported HW context type: %d\n", hw->context_type);
+        LOG_ERROR("Unsupported HW context type: %d", hw->context_type);
         free(ctx);
         return false;
     }
@@ -230,13 +231,13 @@ bool video_gl_init(SDL_Window *window, struct retro_hw_render_callback *hw,
 
     ctx->gl_context = SDL_GL_CreateContext(window);
     if (!ctx->gl_context) {
-        fprintf(stderr, "SDL_GL_CreateContext failed: %s\n", SDL_GetError());
+        LOG_ERROR("SDL_GL_CreateContext failed: %s", SDL_GetError());
         free(ctx);
         return false;
     }
 
     if (!SDL_GL_MakeCurrent(window, ctx->gl_context)) {
-        fprintf(stderr, "SDL_GL_MakeCurrent failed: %s\n", SDL_GetError());
+        LOG_ERROR("SDL_GL_MakeCurrent failed: %s", SDL_GetError());
         SDL_GL_DestroyContext(ctx->gl_context);
         free(ctx);
         return false;
@@ -247,7 +248,7 @@ bool video_gl_init(SDL_Window *window, struct retro_hw_render_callback *hw,
 
     ctx->get_proc_address = (retro_hw_get_proc_address_t)SDL_GL_GetProcAddress;
     if (!ctx->get_proc_address) {
-        fprintf(stderr, "SDL_GL_GetProcAddress unavailable\n");
+        LOG_ERROR("SDL_GL_GetProcAddress unavailable");
         SDL_GL_DestroyContext(ctx->gl_context);
         free(ctx);
         return false;
@@ -339,13 +340,13 @@ void video_gl_present(struct video_gl_context *ctx, unsigned width, unsigned hei
     PFNGLVIEWPORTPROC glViewport = (PFNGLVIEWPORTPROC)ctx->fn_viewport;
 
     if (!glBindFramebuffer) {
-        fprintf(stderr, "video_gl_present: glBindFramebuffer not available\n");
+        LOG_WARN("video_gl_present: glBindFramebuffer not available");
         SDL_GL_SwapWindow(g_frontend.video.window);
         return;
     }
 
     if (!glBlitFramebuffer) {
-        fprintf(stderr, "video_gl_present: glBlitFramebuffer not available, swapping only\n");
+        LOG_WARN("video_gl_present: glBlitFramebuffer not available, swapping only");
         SDL_GL_SwapWindow(g_frontend.video.window);
         return;
     }

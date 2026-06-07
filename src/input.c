@@ -13,6 +13,7 @@
 #include <SDL3/SDL.h>
 #include "input.h"
 #include "frontend.h"
+#include "log.h"
 
 /* ------------------------------------------------------------------ */
 /* RetroPad button name lookup                                         */
@@ -226,7 +227,7 @@ bool input_load_keymap(const char *path)
 
     FILE *fp = fopen(path, "r");
     if (!fp) {
-        fprintf(stderr, "Failed to open keymap config: %s\n", path);
+        LOG_ERROR("Failed to open keymap config: %s", path);
         return false;
     }
 
@@ -265,12 +266,12 @@ bool input_load_keymap(const char *path)
 
         SDL_Scancode sc = SDL_GetScancodeFromName(sc_name);
         if (sc == SDL_SCANCODE_UNKNOWN) {
-            fprintf(stderr, "Warning: unknown scancode '%s' in keymap\n", sc_name);
+            LOG_WARN("unknown scancode '%s' in keymap", sc_name);
             continue;
         }
         unsigned btn = parse_button_name(btn_name);
         if (btn == KEYMAP_UNMAPPED) {
-            fprintf(stderr, "Warning: unknown button '%s' in keymap\n", btn_name);
+            LOG_WARN("unknown button '%s' in keymap", btn_name);
             continue;
         }
 
@@ -279,7 +280,7 @@ bool input_load_keymap(const char *path)
     }
 
     fclose(fp);
-    fprintf(stderr, "Loaded %zu keymap entries from %s\n", loaded, path);
+    LOG_INFO("Loaded %zu keymap entries from %s", loaded, path);
     return true;
 }
 

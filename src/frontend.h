@@ -158,6 +158,12 @@ struct frontend_state
 
     /* Language reported through GET_LANGUAGE (defaults to ENGLISH). */
     enum retro_language language;
+
+    /* Directory hints set via CLI, returned from the corresponding
+     * RETRO_ENVIRONMENT_GET_*_DIRECTORY callbacks. NULL = unset. */
+    char *core_assets_directory;
+    char *playlist_directory;
+    char *file_browser_directory;
 };
 
 extern struct frontend_state g_frontend;

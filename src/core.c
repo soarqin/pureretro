@@ -17,6 +17,7 @@
 #include "audio.h"
 #include "input.h"
 #include "vfs.h"
+#include "log.h"
 
 struct core_functions g_core;
 struct retro_system_av_info g_av_info;
@@ -51,17 +52,15 @@ static void disk_control_apply_initial_index(void)
 
     const struct retro_disk_control_ext_callback *d = &g_frontend.disk_control;
     if (!d->get_num_images || !d->set_eject_state || !d->set_image_index) {
-        fprintf(stderr,
-                "--disk-index ignored: core missing required disk callbacks\n");
+        LOG_WARN("--disk-index ignored: core missing required disk callbacks");
         return;
     }
 
     unsigned num = d->get_num_images();
     unsigned idx = (unsigned)g_frontend.initial_disk_index;
     if (idx >= num) {
-        fprintf(stderr,
-                "--disk-index %u out of range (core reports %u images)\n",
-                idx, num);
+        LOG_WARN("--disk-index %u out of range (core reports %u images)",
+                 idx, num);
         return;
     }
 
@@ -69,13 +68,13 @@ static void disk_control_apply_initial_index(void)
      * disks. Failures are warned but non-fatal: the core may simply have
      * the requested disk already loaded. */
     if (!d->set_eject_state(true))
-        fprintf(stderr, "warning: disk set_eject_state(true) failed\n");
+        LOG_WARN("disk set_eject_state(true) failed");
     if (!d->set_image_index(idx))
-        fprintf(stderr, "warning: disk set_image_index(%u) failed\n", idx);
+        LOG_WARN("disk set_image_index(%u) failed", idx);
     if (!d->set_eject_state(false))
-        fprintf(stderr, "warning: disk set_eject_state(false) failed\n");
+        LOG_WARN("disk set_eject_state(false) failed");
 
-    fprintf(stderr, "Disk index set to %u (of %u)\n", idx, num);
+    LOG_INFO("Disk index set to %u (of %u)", idx, num);
 }
 
 static bool load_file(const char *path, void **out_data, size_t *out_size)
@@ -86,7 +85,7 @@ static bool load_file(const char *path, void **out_data, size_t *out_size)
 
     fp = fopen(path, "rb");
     if (!fp) {
-        fprintf(stderr, "Failed to open file: %s\n", path);
+        LOG_ERROR("Failed to open file: %s", path);
         return false;
     }
 
@@ -98,9 +97,9 @@ static bool load_file(const char *path, void **out_data, size_t *out_size)
     size = ftell(fp);
     if (size <= 0) {
         if (size < 0)
-            fprintf(stderr, "ftell failed for: %s\n", path);
+            LOG_ERROR("ftell failed for: %s", path);
         else
-            fprintf(stderr, "Refusing to load empty file: %s\n", path);
+            LOG_ERROR("Refusing to load empty file: %s", path);
         fclose(fp);
         return false;
     }
@@ -128,13 +127,20 @@ static bool load_file(const char *path, void **out_data, size_t *out_size)
     return true;
 }
 
-static void RETRO_CALLCONV log_stderr(enum retro_log_level level,
-                                      const char *fmt, ...)
+static void RETRO_CALLCONV core_log_bridge(enum retro_log_level level,
+                                           const char *fmt, ...)
 {
+    enum log_level lvl;
+    switch (level) {
+    case RETRO_LOG_DEBUG: lvl = LOG_LEVEL_DEBUG; break;
+    case RETRO_LOG_INFO:  lvl = LOG_LEVEL_INFO;  break;
+    case RETRO_LOG_WARN:  lvl = LOG_LEVEL_WARN;  break;
+    case RETRO_LOG_ERROR: lvl = LOG_LEVEL_ERROR; break;
+    default:              lvl = LOG_LEVEL_INFO;  break;
+    }
     va_list va;
-    (void)level;
     va_start(va, fmt);
-    vfprintf(stderr, fmt, va);
+    log_emit_v(lvl, "CORE", NULL, 0, fmt, va);
     va_end(va);
 }
 
@@ -142,7 +148,7 @@ bool core_load(const char *path)
 {
     g_core_handle = SDL_LoadObject(path);
     if (!g_core_handle) {
-        fprintf(stderr, "SDL_LoadObject failed: %s\n", SDL_GetError());
+        LOG_ERROR("SDL_LoadObject failed: %s", SDL_GetError());
         return false;
     }
 
@@ -150,7 +156,7 @@ bool core_load(const char *path)
     do {                                                                  \
         SDL_FunctionPointer _fp = SDL_LoadFunction(g_core_handle, #sym); \
         if (!_fp) {                                                       \
-            fprintf(stderr, "Failed to load symbol: %s\n", #sym);        \
+            LOG_ERROR("Failed to load symbol: %s", #sym);                \
             SDL_UnloadObject(g_core_handle);                              \
             g_core_handle = NULL;                                         \
             memset(&g_core, 0, sizeof(g_core));                           \
@@ -224,11 +230,11 @@ bool core_init(const char *content_path)
 {
     struct retro_system_info info;
 
-    fprintf(stderr, "Initializing core (content: %s)\n",
-            content_path ? content_path : "<none>");
+    LOG_INFO("Initializing core (content: %s)",
+             content_path ? content_path : "<none>");
 
     if (g_core.retro_api_version() != RETRO_API_VERSION) {
-        fprintf(stderr, "Core API version mismatch\n");
+        LOG_ERROR("Core API version mismatch");
         return false;
     }
 
@@ -241,7 +247,7 @@ bool core_init(const char *content_path)
     g_core.retro_init();
 
     g_core.retro_get_system_info(&info);
-    fprintf(stderr, "Core: %s (v%s)\n", info.library_name, info.library_version);
+    LOG_INFO("Core: %s (v%s)", info.library_name, info.library_version);
 
     if (content_path) {
         struct retro_game_info game;
@@ -249,16 +255,16 @@ bool core_init(const char *content_path)
         game.path = content_path;
 
         if (!load_file(content_path, &g_frontend.rom_data, &g_frontend.rom_size)) {
-            fprintf(stderr, "Failed to load content file: %s\n", content_path);
+            LOG_ERROR("Failed to load content file: %s", content_path);
             return false;
         }
 
         game.data = g_frontend.rom_data;
         game.size = g_frontend.rom_size;
 
-        fprintf(stderr, "Calling retro_load_game...\n");
+        LOG_INFO("Calling retro_load_game...");
         if (!g_core.retro_load_game(&game)) {
-            fprintf(stderr, "retro_load_game failed (core rejected the content)\n");
+            LOG_ERROR("retro_load_game failed (core rejected the content)");
             /* Release the ROM buffer immediately so a caller that bails out
              * without invoking core_unload does not leak it. core_unload()
              * also handles this case, so a double-free is avoided by
@@ -268,22 +274,22 @@ bool core_init(const char *content_path)
             g_frontend.rom_size = 0;
             return false;
         }
-        fprintf(stderr, "retro_load_game succeeded\n");
+        LOG_INFO("retro_load_game succeeded");
     } else {
-        fprintf(stderr, "Calling retro_load_game(NULL)...\n");
+        LOG_INFO("Calling retro_load_game(NULL)...");
         if (!g_core.retro_load_game(NULL)) {
-            fprintf(stderr, "retro_load_game(NULL) failed\n");
+            LOG_ERROR("retro_load_game(NULL) failed");
             return false;
         }
-        fprintf(stderr, "retro_load_game(NULL) succeeded\n");
+        LOG_INFO("retro_load_game(NULL) succeeded");
     }
 
     g_core.retro_get_system_av_info(&g_av_info);
-    fprintf(stderr, "AV: %ux%u @ %.2f Hz, audio: %.2f Hz\n",
-            g_av_info.geometry.base_width,
-            g_av_info.geometry.base_height,
-            g_av_info.timing.fps,
-            g_av_info.timing.sample_rate);
+    LOG_INFO("AV: %ux%u @ %.2f Hz, audio: %.2f Hz",
+             g_av_info.geometry.base_width,
+             g_av_info.geometry.base_height,
+             g_av_info.timing.fps,
+             g_av_info.timing.sample_rate);
 
     /* For HW cores the window was created during SET_HW_RENDER before
      * AV info was available. Resize it now that we know the real resolution. */
@@ -294,7 +300,7 @@ bool core_init(const char *content_path)
     /* Notify the core that the HW context is ready. This must happen after
      * retro_load_game returns so the core has finished its own setup. */
     if (g_frontend.video.hw_render_enabled && g_frontend.video.hw.context_reset) {
-        fprintf(stderr, "Calling context_reset after retro_load_game...\n");
+        LOG_INFO("Calling context_reset after retro_load_game...");
         g_frontend.video.hw.context_reset();
     }
 
@@ -314,7 +320,7 @@ void core_run(void)
 static bool require_data(unsigned cmd, const void *data)
 {
     if (!data) {
-        fprintf(stderr, "core_environment: NULL data for cmd %u (0x%x)\n", cmd, cmd);
+        LOG_WARN("core_environment: NULL data for cmd %u (0x%x)", cmd, cmd);
         return false;
     }
     return true;
@@ -410,7 +416,7 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         if (!require_data(cmd, data))
             return false;
         const struct retro_message *msg = (const struct retro_message *)data;
-        fprintf(stderr, "[CORE] %s\n", msg->msg);
+        LOG_INFO("[CORE] %s", msg->msg);
         return true;
     }
 
@@ -418,15 +424,20 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         g_frontend.running = false;
         return true;
 
-    case RETRO_ENVIRONMENT_SET_PERFORMANCE_LEVEL:
-        return false;
+    case RETRO_ENVIRONMENT_SET_PERFORMANCE_LEVEL: {
+        if (!require_data(cmd, data))
+            return false;
+        unsigned level = *(const unsigned *)data;
+        LOG_INFO("Core performance level hint: %u", level);
+        return true;
+    }
 
     case RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY:
         if (!require_data(cmd, data))
             return false;
         *(const char **)data = g_frontend.system_directory;
-        fprintf(stderr, "Core queried system directory: %s\n",
-                g_frontend.system_directory ? g_frontend.system_directory : "(null)");
+        LOG_DEBUG("Core queried system directory: %s",
+                  g_frontend.system_directory ? g_frontend.system_directory : "(null)");
         return true;
 
     case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT: {
@@ -440,7 +451,7 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         case RETRO_PIXEL_FORMAT_RGB565:   fmt_name = "RGB565";   break;
         case RETRO_PIXEL_FORMAT_UNKNOWN:  fmt_name = "UNKNOWN";  break;
         }
-        fprintf(stderr, "Core requested pixel format: %s (%d)\n", fmt_name, (int)fmt);
+        LOG_INFO("Core requested pixel format: %s (%d)", fmt_name, (int)fmt);
         /* Accept all formats. The software renderer will handle whatever the
          * core sends. Returning false here causes cores like Beetle PSX HW
          * to skip SET_HW_RENDER entirely and fall back to software. */
@@ -460,8 +471,23 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         return true;
     }
 
-    case RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE:
-        return false;
+    case RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE: {
+        if (!require_data(cmd, data))
+            return false;
+        const struct retro_disk_control_callback *legacy =
+            (const struct retro_disk_control_callback *)data;
+        /* The legacy struct's first 7 fields are layout-identical to the
+         * ext struct. memcpy those and leave the ext-only fields NULL
+         * (memset guarantees set_initial_image/get_image_path/get_image_label). */
+        memset(&g_frontend.disk_control, 0,
+               sizeof(g_frontend.disk_control));
+        memcpy(&g_frontend.disk_control, legacy,
+               sizeof(struct retro_disk_control_callback));
+        g_frontend.has_disk_control = true;
+        LOG_INFO("Core registered legacy disk control interface");
+        disk_control_apply_initial_index();
+        return true;
+    }
 
     case RETRO_ENVIRONMENT_SET_HW_RENDER:
         if (!require_data(cmd, data))
@@ -480,8 +506,8 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         case VIDEO_RENDERER_NONE:
         default:                    result = false; break;
         }
-        fprintf(stderr, "Core queried preferred HW render: %s (context=%d)\n",
-                result ? "yes" : "no (no preference)", *preferred);
+        LOG_DEBUG("Core queried preferred HW render: %s (context=%d)",
+                  result ? "yes" : "no (no preference)", *preferred);
         return result;
     }
 
@@ -588,9 +614,8 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
                 seeded++;
         }
 
-        fprintf(stderr,
-                "Core registered %zu variables (%zu seeded from defaults)\n",
-                total, seeded);
+        LOG_INFO("Core registered %zu variables (%zu seeded from defaults)",
+                 total, seeded);
         return ok;
     }
 
@@ -640,7 +665,7 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         if (!require_data(cmd, data))
             return false;
         struct retro_log_callback *cb = (struct retro_log_callback *)data;
-        cb->log = log_stderr;
+        cb->log = core_log_bridge;
         return true;
     }
 
@@ -653,7 +678,19 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
     case RETRO_ENVIRONMENT_GET_CORE_ASSETS_DIRECTORY:
         if (!require_data(cmd, data))
             return false;
-        *(const char **)data = NULL;
+        *(const char **)data = g_frontend.core_assets_directory;
+        return true;
+
+    case RETRO_ENVIRONMENT_GET_PLAYLIST_DIRECTORY:
+        if (!require_data(cmd, data))
+            return false;
+        *(const char **)data = g_frontend.playlist_directory;
+        return true;
+
+    case RETRO_ENVIRONMENT_GET_FILE_BROWSER_START_DIRECTORY:
+        if (!require_data(cmd, data))
+            return false;
+        *(const char **)data = g_frontend.file_browser_directory;
         return true;
 
     case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY:
@@ -663,8 +700,7 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
                           ? g_frontend.save_directory
                           : g_frontend.system_directory;
         *(const char **)data = dir;
-        fprintf(stderr, "Core queried save directory: %s\n",
-                dir ? dir : "(null)");
+        LOG_DEBUG("Core queried save directory: %s", dir ? dir : "(null)");
         return true;
 
     case RETRO_ENVIRONMENT_SET_GEOMETRY: {
@@ -716,9 +752,8 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
              p && p->types && p->num_types > 0;
              ++p, ++port) {
             if (port >= FRONTEND_MAX_PORTS) {
-                fprintf(stderr,
-                        "SET_CONTROLLER_INFO: dropping ports beyond %u\n",
-                        (unsigned)FRONTEND_MAX_PORTS);
+                LOG_WARN("SET_CONTROLLER_INFO: dropping ports beyond %u",
+                         (unsigned)FRONTEND_MAX_PORTS);
                 break;
             }
 
@@ -738,14 +773,14 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         }
         g_frontend.controller_port_count = port;
 
-        fprintf(stderr, "Core registered controller info for %u port(s):\n", port);
+        LOG_INFO("Core registered controller info for %u port(s):", port);
         for (unsigned i = 0; i < port; ++i) {
             const struct controller_port_info *slot = &g_frontend.controller_ports[i];
-            fprintf(stderr, "  port %u: %u device type(s)\n", i, slot->num_types);
+            LOG_INFO("  port %u: %u device type(s)", i, slot->num_types);
             for (unsigned t = 0; t < slot->num_types; ++t) {
-                fprintf(stderr, "    [%u] id=%u desc=%s\n",
-                        t, slot->types[t].id,
-                        slot->types[t].desc ? slot->types[t].desc : "(null)");
+                LOG_INFO("    [%u] id=%u desc=%s",
+                         t, slot->types[t].id,
+                         slot->types[t].desc ? slot->types[t].desc : "(null)");
             }
         }
         return true;
@@ -764,9 +799,8 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
             (const struct retro_disk_control_ext_callback *)data;
         g_frontend.disk_control = *cb;
         g_frontend.has_disk_control = true;
-        fprintf(stderr,
-                "Core registered disk control ext interface (num_images=%u)\n",
-                cb->get_num_images ? cb->get_num_images() : 0);
+        LOG_INFO("Core registered disk control ext interface (num_images=%u)",
+                 cb->get_num_images ? cb->get_num_images() : 0);
         disk_control_apply_initial_index();
         return true;
     }
@@ -806,6 +840,42 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
          * fast-forwarding (not implemented yet), and video is always on. */
         *(int *)data = (g_frontend.no_audio ? 0 : 1) | (1 << 1);
         return true;
+
+    case RETRO_ENVIRONMENT_GET_INPUT_MAX_USERS:
+        if (!require_data(cmd, data))
+            return false;
+        /* The frontend currently maps a single keyboard to port 0 only.
+         * Cores can use this to skip polling ports 1..N. */
+        *(unsigned *)data = 1;
+        return true;
+
+    case RETRO_ENVIRONMENT_GET_TARGET_SAMPLE_RATE & ~RETRO_ENVIRONMENT_EXPERIMENTAL: {
+        if (!require_data(cmd, data))
+            return false;
+        float rate = (g_av_info.timing.sample_rate > 0.0)
+                     ? (float)g_av_info.timing.sample_rate
+                     : (float)FRONTEND_AUDIO_SAMPLE_RATE;
+        *(float *)data = rate;
+        return true;
+    }
+
+    case RETRO_ENVIRONMENT_SET_AUDIO_BUFFER_STATUS_CALLBACK: {
+        /* data may be NULL to clear the callback; the environment call
+         * itself is still considered supported. */
+        const struct retro_audio_buffer_status_callback *cb =
+            (const struct retro_audio_buffer_status_callback *)data;
+        audio_set_buffer_status_callback(cb ? cb->callback : NULL);
+        LOG_INFO("Core %s audio buffer status callback",
+                 cb && cb->callback ? "registered" : "unregistered");
+        return true;
+    }
+
+    case RETRO_ENVIRONMENT_SET_MINIMUM_AUDIO_LATENCY: {
+        unsigned ms = (data) ? *(const unsigned *)data : 0;
+        audio_set_minimum_latency(ms);
+        LOG_INFO("Core requested minimum audio latency: %u ms", ms);
+        return true;
+    }
 
     case RETRO_ENVIRONMENT_GET_FASTFORWARDING:
         if (!require_data(cmd, data))
@@ -859,12 +929,11 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         const struct retro_hw_render_interface **iface =
             (const struct retro_hw_render_interface **)data;
         if (!video_get_hw_render_interface(iface)) {
-            fprintf(stderr,
-                    "GET_HW_RENDER_INTERFACE: no interface for active backend\n");
+            LOG_WARN("GET_HW_RENDER_INTERFACE: no interface for active backend");
             return false;
         }
-        fprintf(stderr, "GET_HW_RENDER_INTERFACE: returning %p\n",
-                (const void *)*iface);
+        LOG_INFO("GET_HW_RENDER_INTERFACE: returning %p",
+                 (const void *)*iface);
         return true;
     }
 
@@ -899,8 +968,8 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         }
         size_t seeded = seed_disk_overrides_from_defaults();
         size_t total = core_options_table_count(&g_frontend.core_options);
-        fprintf(stderr, "Core registered %zu options (%zu seeded from defaults)\n",
-                total, seeded);
+        LOG_INFO("Core registered %zu options (%zu seeded from defaults)",
+                 total, seeded);
         return true;
     }
 
@@ -919,8 +988,8 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         }
         size_t seeded = seed_disk_overrides_from_defaults();
         size_t total = core_options_table_count(&g_frontend.core_options);
-        fprintf(stderr, "Core registered %zu options (%zu seeded from defaults)\n",
-                total, seeded);
+        LOG_INFO("Core registered %zu options (%zu seeded from defaults)",
+                 total, seeded);
         return true;
     }
 
@@ -937,8 +1006,8 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         }
         size_t seeded = seed_disk_overrides_from_defaults();
         size_t total = core_options_table_count(&g_frontend.core_options);
-        fprintf(stderr, "Core registered %zu options (%zu seeded from defaults)\n",
-                total, seeded);
+        LOG_INFO("Core registered %zu options (%zu seeded from defaults)",
+                 total, seeded);
         return true;
     }
 
@@ -957,8 +1026,8 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         }
         size_t seeded = seed_disk_overrides_from_defaults();
         size_t total = core_options_table_count(&g_frontend.core_options);
-        fprintf(stderr, "Core registered %zu options (%zu seeded from defaults)\n",
-                total, seeded);
+        LOG_INFO("Core registered %zu options (%zu seeded from defaults)",
+                 total, seeded);
         return true;
     }
 
@@ -972,7 +1041,7 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
     }
 
     default:
-        fprintf(stderr, "Unhandled cmd: %u (0x%x, raw 0x%x)\n", cmd, cmd, raw_cmd);
+        LOG_DEBUG("Unhandled cmd: %u (0x%x, raw 0x%x)", cmd, cmd, raw_cmd);
         return false;
     }
 }

@@ -16,6 +16,7 @@
 #include "video.h"
 #include "audio.h"
 #include "input.h"
+#include "log.h"
 
 /* Global frontend state */
 struct frontend_state g_frontend;
@@ -39,6 +40,11 @@ static void print_usage(const char *argv0)
     fprintf(stderr, "  --lang <code>       Language reported to the core (e.g. en, ja, fr, de,\n");
     fprintf(stderr, "                      es, it, pt_br, pt_pt, ru, ko, zh_cn, zh_tw)\n");
     fprintf(stderr, "  --username <name>   Player name reported via GET_USERNAME\n");
+    fprintf(stderr, "  --core-assets-dir <path>     Directory reported via GET_CORE_ASSETS_DIRECTORY\n");
+    fprintf(stderr, "  --playlist-dir <path>        Directory reported via GET_PLAYLIST_DIRECTORY\n");
+    fprintf(stderr, "  --file-browser-dir <path>    Directory reported via GET_FILE_BROWSER_START_DIRECTORY\n");
+    fprintf(stderr, "  --log-level <lvl>   debug, info (default), warn, or error\n");
+    fprintf(stderr, "                      Also settable via PURERETRO_LOG environment variable.\n");
 }
 
 static bool parse_lang(const char *arg, enum retro_language *out)
@@ -168,8 +174,8 @@ static bool parse_args(int argc, char *argv[])
                 print_usage(argv[0]);
                 return false;
             }
-            fprintf(stderr, "Renderer preference: %s\n",
-                    renderer_name(g_frontend.preferred_renderer));
+            LOG_INFO("Renderer preference: %s",
+                     renderer_name(g_frontend.preferred_renderer));
         } else if (strcmp(argv[i], "--config") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "--config requires a file path\n");
@@ -240,6 +246,47 @@ static bool parse_args(int argc, char *argv[])
             ++i;
             free(g_frontend.username);
             g_frontend.username = SDL_strdup(argv[i]);
+        } else if (strcmp(argv[i], "--core-assets-dir") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--core-assets-dir requires a path\n");
+                print_usage(argv[0]);
+                return false;
+            }
+            ++i;
+            free(g_frontend.core_assets_directory);
+            g_frontend.core_assets_directory = SDL_strdup(argv[i]);
+        } else if (strcmp(argv[i], "--playlist-dir") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--playlist-dir requires a path\n");
+                print_usage(argv[0]);
+                return false;
+            }
+            ++i;
+            free(g_frontend.playlist_directory);
+            g_frontend.playlist_directory = SDL_strdup(argv[i]);
+        } else if (strcmp(argv[i], "--file-browser-dir") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--file-browser-dir requires a path\n");
+                print_usage(argv[0]);
+                return false;
+            }
+            ++i;
+            free(g_frontend.file_browser_directory);
+            g_frontend.file_browser_directory = SDL_strdup(argv[i]);
+        } else if (strcmp(argv[i], "--log-level") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--log-level requires an argument (debug|info|warn|error)\n");
+                print_usage(argv[0]);
+                return false;
+            }
+            ++i;
+            enum log_level lvl;
+            if (!log_parse_level(argv[i], &lvl)) {
+                fprintf(stderr, "Invalid log level: '%s'\n", argv[i]);
+                print_usage(argv[0]);
+                return false;
+            }
+            log_set_level(lvl);
         } else {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             print_usage(argv[0]);
@@ -277,8 +324,8 @@ static void set_system_directory(void)
         if (g_frontend.system_directory) {
             snprintf(g_frontend.system_directory, total,
                      "%.*s/system", (int)cwd_len, cwd);
-            fprintf(stderr, "System directory (portable): %s\n",
-                    g_frontend.system_directory);
+            LOG_INFO("System directory (portable): %s",
+                     g_frontend.system_directory);
             SDL_CreateDirectory(g_frontend.system_directory);
         }
         SDL_free(cwd);
@@ -295,7 +342,7 @@ static void set_system_directory(void)
     g_frontend.system_directory = malloc(len + 1);
     if (g_frontend.system_directory) {
         memcpy(g_frontend.system_directory, pref, len + 1);
-        fprintf(stderr, "System directory: %s\n", g_frontend.system_directory);
+        LOG_INFO("System directory: %s", g_frontend.system_directory);
         SDL_CreateDirectory(g_frontend.system_directory);
     }
     SDL_free((void *)pref);
@@ -303,8 +350,10 @@ static void set_system_directory(void)
 
 static bool frontend_init(void)
 {
+    log_init();
+
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS)) {
-        fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
+        LOG_ERROR("SDL_Init failed: %s", SDL_GetError());
         return false;
     }
 
@@ -315,7 +364,7 @@ static bool frontend_init(void)
     set_system_directory();
 
     if (!video_init("PureRetro", 640, 480)) {
-        fprintf(stderr, "Failed to initialize video\n");
+        LOG_ERROR("Failed to initialize video");
         free(g_frontend.system_directory);
         g_frontend.system_directory = NULL;
         return false;
@@ -334,6 +383,12 @@ static void frontend_shutdown(void)
     g_frontend.system_directory = NULL;
     free(g_frontend.save_directory);
     g_frontend.save_directory = NULL;
+    free(g_frontend.core_assets_directory);
+    g_frontend.core_assets_directory = NULL;
+    free(g_frontend.playlist_directory);
+    g_frontend.playlist_directory = NULL;
+    free(g_frontend.file_browser_directory);
+    g_frontend.file_browser_directory = NULL;
     SDL_free(g_frontend.username);
     g_frontend.username = NULL;
     SDL_Quit();
@@ -379,6 +434,7 @@ static void run_loop(void)
         }
 
         input_poll();
+        audio_notify_buffer_status();
         core_run();
 
         if (target_frame_ns > 0) {
@@ -402,7 +458,7 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
 
     if (!core_load(g_frontend.core_path)) {
-        fprintf(stderr, "Failed to load core: %s\n", g_frontend.core_path);
+        LOG_ERROR("Failed to load core: %s", g_frontend.core_path);
         frontend_shutdown();
         return EXIT_FAILURE;
     }
@@ -416,13 +472,13 @@ int main(int argc, char *argv[])
 
     if (g_frontend.config_path) {
         if (!input_load_keymap(g_frontend.config_path)) {
-            fprintf(stderr, "Warning: failed to load keymap config: %s\n",
-                    g_frontend.config_path);
+            LOG_WARN("Failed to load keymap config: %s",
+                     g_frontend.config_path);
         }
     }
 
     if (!core_init(g_frontend.content_path)) {
-        fprintf(stderr, "Failed to initialize core\n");
+        LOG_ERROR("Failed to initialize core");
         free(opt_path);
         /* Tear the core down first (stops its background threads, releases
          * its own resources) before destroying the SDL / video subsystems
@@ -435,7 +491,7 @@ int main(int argc, char *argv[])
     /* Software-only cores never call SET_HW_RENDER, so bootstrap
      * the software backend here. No-op for hardware cores. */
     if (!video_ensure_software_renderer()) {
-        fprintf(stderr, "Failed to initialize software renderer\n");
+        LOG_ERROR("Failed to initialize software renderer");
         free(opt_path);
         core_unload();
         frontend_shutdown();
@@ -448,8 +504,8 @@ int main(int argc, char *argv[])
 
     /* Log the final renderer state after core init. If the core never called
      * SET_HW_RENDER (e.g. software-only core), this still shows sw. */
-    fprintf(stderr, "Final active renderer: %s\n",
-            renderer_name(g_frontend.video.renderer));
+    LOG_INFO("Final active renderer: %s",
+             renderer_name(g_frontend.video.renderer));
 
     /* Warn if the user requested HW but ended up in software. This usually
      * means the core failed to load (retro_load_game returned false) or the
@@ -457,20 +513,20 @@ int main(int argc, char *argv[])
     if (g_frontend.preferred_renderer != VIDEO_RENDERER_NONE &&
         g_frontend.preferred_renderer != VIDEO_RENDERER_SW &&
         g_frontend.video.renderer == VIDEO_RENDERER_SW) {
-        fprintf(stderr, "  WARNING: user requested '%s' but renderer is 'sw'.\n",
-                renderer_name(g_frontend.preferred_renderer));
+        LOG_WARN("user requested '%s' but renderer is 'sw'.",
+                 renderer_name(g_frontend.preferred_renderer));
         if (!g_frontend.hw_render_requested) {
-            fprintf(stderr, "  The core never called SET_HW_RENDER. Common causes:\n");
-            fprintf(stderr, "  - Missing firmware/BIOS (cores like Beetle PSX HW\n");
-            fprintf(stderr, "    silently fall back to software without a valid BIOS)\n");
-            fprintf(stderr, "  - Core does not support the requested renderer\n");
-            fprintf(stderr, "  - Core failed to load content (check earlier errors)\n");
+            LOG_WARN("The core never called SET_HW_RENDER. Common causes:");
+            LOG_WARN("  - Missing firmware/BIOS (cores like Beetle PSX HW");
+            LOG_WARN("    silently fall back to software without a valid BIOS)");
+            LOG_WARN("  - Core does not support the requested renderer");
+            LOG_WARN("  - Core failed to load content (check earlier errors)");
         }
     }
 
     /* Initialize audio now that we know the core's sample rate */
     if (!g_frontend.no_audio && !audio_init(g_av_info.timing.sample_rate)) {
-        fprintf(stderr, "Warning: failed to initialize audio\n");
+        LOG_WARN("Failed to initialize audio");
     }
 
     run_loop();

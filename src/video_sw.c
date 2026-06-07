@@ -10,6 +10,7 @@
 #include <SDL3/SDL.h>
 #include "video_sw.h"
 #include "video_backend.h"
+#include "log.h"
 
 bool video_sw_init(SDL_Window *window, struct video_sw_context **out_ctx)
 {
@@ -19,7 +20,7 @@ bool video_sw_init(SDL_Window *window, struct video_sw_context **out_ctx)
 
     ctx->renderer = SDL_CreateRenderer(window, NULL);
     if (!ctx->renderer) {
-        fprintf(stderr, "SDL_CreateRenderer failed: %s\n", SDL_GetError());
+        LOG_ERROR("SDL_CreateRenderer failed: %s", SDL_GetError());
         free(ctx);
         return false;
     }
@@ -84,7 +85,7 @@ static bool ensure_texture(struct video_sw_context *ctx, unsigned width,
                                       SDL_TEXTUREACCESS_STREAMING,
                                       (int)width, (int)height);
     if (!ctx->texture) {
-        fprintf(stderr, "SDL_CreateTexture failed: %s\n", SDL_GetError());
+        LOG_ERROR("SDL_CreateTexture failed: %s", SDL_GetError());
         return false;
     }
 
@@ -105,7 +106,7 @@ void video_sw_present(struct video_sw_context *ctx, const void *data,
 
     sdl_fmt = sdl_format_for(fmt);
     if (sdl_fmt == SDL_PIXELFORMAT_UNKNOWN) {
-        fprintf(stderr, "Unsupported pixel format: %d\n", fmt);
+        LOG_ERROR("Unsupported pixel format: %d", fmt);
         return;
     }
 
@@ -134,7 +135,7 @@ void video_sw_present(struct video_sw_context *ctx, const void *data,
 
         if (data) {
             if (!SDL_UpdateTexture(ctx->texture, NULL, data, (int)pitch)) {
-                fprintf(stderr, "SDL_UpdateTexture failed: %s\n", SDL_GetError());
+                LOG_ERROR("SDL_UpdateTexture failed: %s", SDL_GetError());
                 return;
             }
         }
@@ -187,7 +188,7 @@ bool video_sw_get_framebuffer(struct video_sw_context *ctx,
     void *pixels = NULL;
     int pitch = 0;
     if (!SDL_LockTexture(ctx->texture, NULL, &pixels, &pitch)) {
-        fprintf(stderr, "SDL_LockTexture failed: %s\n", SDL_GetError());
+        LOG_ERROR("SDL_LockTexture failed: %s", SDL_GetError());
         return false;
     }
 
