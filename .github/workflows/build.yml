@@ -15,7 +15,12 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libvulkan-dev
+          sudo apt-get install -y ninja-build libvulkan-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev \
+            libxi-dev libxss-dev libwayland-dev libxkbcommon-dev libdrm-dev \
+            libgbm-dev libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev \
+            libdbus-1-dev libibus-1.0-dev libudev-dev libpipewire-0.3-dev \
+            libpulse-dev libasound2-dev libsndio-dev libdecor-0-dev
 
       - name: Configure (GCC)
         run: cmake -G Ninja -B build -DCMAKE_C_COMPILER=gcc -DPURERETRO_ENABLE_VULKAN=ON
@@ -31,7 +36,12 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libvulkan-dev clang
+          sudo apt-get install -y ninja-build libvulkan-dev clang \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev \
+            libxi-dev libxss-dev libwayland-dev libxkbcommon-dev libdrm-dev \
+            libgbm-dev libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev \
+            libdbus-1-dev libibus-1.0-dev libudev-dev libpipewire-0.3-dev \
+            libpulse-dev libasound2-dev libsndio-dev libdecor-0-dev
 
       - name: Configure (Clang)
         run: cmake -G Ninja -B build -DCMAKE_C_COMPILER=clang -DPURERETRO_ENABLE_VULKAN=ON
