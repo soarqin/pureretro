@@ -9,8 +9,8 @@
 
 - **已明确处理（有 `case` 分支）**：约 28 个 command，其中部分为 stub（直接返回 `false`）。
 - **完全未处理（走到 `default`）**：约 40 个 command。
-- **已 stub 但值得升级为真实实现**：如 `SET_KEYBOARD_CALLBACK`、`SET_DISK_CONTROL_EXT_INTERFACE` 等。
-- **可配置项缺失**：目前 CLI 仅支持 `--fullscreen`、`-f`、`--render`、`--scale`、`--no-audio`、`--variable`、`--portable`；大量路径、音频、输入、行为参数仍硬编码。
+- **已 stub 但值得升级为真实实现**：如 `SET_DISK_CONTROL_EXT_INTERFACE`、`SET_MEMORY_MAPS` 等。
+- **可配置项缺失**：目前 CLI 支持 `--fullscreen`、`-f`、`--render`、`--scale`、`--no-audio`、`--variable`、`--portable`、`--system-dir`、`--save-dir`、`--config`；大量路径、音频、输入、行为参数仍硬编码。
 
 ---
 
@@ -20,17 +20,7 @@
 
 | 优先级 | Command / 配置项 | 当前状态 | 为什么重要 | 基本实现建议 |
 |:---:|---|:---:|---|---|
-| **P0** | `SET_GEOMETRY` (37) | 完全未处理 | **绝大多数动态分辨率核心都会调用**（街机、PC 模拟器），只改分辨率不改帧率/音频。目前仅支持 `SET_SYSTEM_AV_INFO`，很多核心因此无法正常调整画面尺寸。 | 复用 `SET_SYSTEM_AV_INFO` 的 resize 逻辑，但只更新 `g_av_info.geometry` 的宽高/宽高比，不碰 `timing`。调用 `video_resize()`。 |
-| **P0** | `GET_INPUT_BITMASKS` (51) | 完全未处理 | **现代核心普遍查询**以使用 `RETRO_DEVICE_ID_JOYPAD_MASK` 批量获取按键状态，提升输入性能。input.c 已支持 mask，只是没声明支持。 | `*(bool *)data = true; return true;`。input.c 的 `input_state_joypad_mask` 逻辑已完备。 |
-| **P0** | `SET_CORE_OPTIONS_V2` (67) / `V2_INTL` (68) / `UPDATE_DISPLAY_CALLBACK` (69) | 完全未处理 | **现代核心主流选项注册方式**，`SET_VARIABLES` 已 deprecated。不支持会导致新核心无法暴露可调选项。 | 解析 `retro_core_options_v2` 结构体，提取 key / description / values，存入现有的 `variable_table` 中。复用现有的变量查询/持久化逻辑。`UPDATE_DISPLAY_CALLBACK` 可先返回 `true` 并忽略回调。 |
-| **P0** | `GET_CORE_OPTIONS_VERSION` (52) | 完全未处理 | 核心在注册选项前**必须先查询版本**以决定用 `SET_VARIABLES` 还是 `SET_CORE_OPTIONS_V2`。 | `*(unsigned *)data = 2; return true;`（表示支持 V2）。 |
-| **P0** | `SET_CORE_OPTIONS` (53) / `INTL` (54) | 完全未处理 | V1 核心选项，仍有**大量现有核心使用**。 | 类似 V2，解析 `retro_core_options` 结构体，提取键值对存入 `variable_table`。 |
 | **P0** | `SET_CONTROLLER_INFO` (35) | 完全未处理 | **多端口核心**（如 N64、PS1 模拟器）都会调用，用于报告各端口支持的设备类型。虽然 minimal frontend 无 GUI，但返回 `true` 并记录信息可避免核心报错。 | 接收 `retro_controller_info` 数组，遍历存下各端口的设备类型信息。可先只记录到 stderr 并返回 `true`。 |
-| **P0** | `--system-dir <path>` CLI 参数 | 缺失 | `GET_SYSTEM_DIRECTORY` 目前只有 `--portable` 间接控制路径，**无法直接指定**。很多用户需要把 BIOS 放在自定义位置。 | 添加 CLI 解析 `--system-dir`，若提供则直接覆盖 `g_frontend.system_directory`。优先级：`--system-dir` > `--portable`。 |
-| **P0** | `--save-dir <path>` CLI 参数 | 缺失 | `GET_SAVE_DIRECTORY` 目前直接复用 `system_directory`。存档和系统文件应可分离。 | 添加 `g_frontend.save_directory` 字段，CLI 支持 `--save-dir`，默认回退到 `system_directory`。 |
-| **P1** | `SET_MESSAGE_EXT` (60) | 完全未处理 | `SET_MESSAGE` 的现代化替代，**新核心广泛使用**，支持分类、进度条、持续时间等。 | 解析 `retro_message_ext`，提取 `msg` 并 `fprintf(stderr, "[CORE] %s\n", msg)`。先实现基本文本输出，忽略 priority / progress / type。 |
-| **P1** | `GET_MESSAGE_INTERFACE_VERSION` (59) | 完全未处理 | 核心在决定用 `SET_MESSAGE` 还是 `SET_MESSAGE_EXT` 前会查询版本。 | `*(unsigned *)data = 1; return true;` |
-| **P1** | `SET_KEYBOARD_CALLBACK` (12) | Stub (返回 false) | **电脑模拟器核心**（DOSBox、Vice、UAE 等）必备。当前完全拒绝会导致这些核心键盘输入失效。 | 在 `frontend_state` 中存下 `retro_keyboard_callback`。在 `input_process_event` 中，对未映射到 RetroPad 的按键，调用 `callback->callback(retro_key, retro_char, key_down, mod)`。需要建立 SDL scancode -> `retro_key` 的映射表。 |
 | **P1** | `SET_DISK_CONTROL_EXT_INTERFACE` (58) | 完全未处理 | 多盘游戏（如 PS1、PC Engine CD）的换盘功能。当前只有旧版 `SET_DISK_CONTROL_INTERFACE` stub。 | 实现基础磁盘控制回调：存下 `retro_disk_control_ext_callback`，提供插入/弹出/获取镜像数量/获取镜像标签的能力。CLI 可加 `--disk-index <N>` 来切换。 |
 | **P1** | `GET_DISK_CONTROL_INTERFACE_VERSION` (57) | 完全未处理 | 核心先查询版本再决定用旧版还是 EXT 接口。 | `*(unsigned *)data = 1; return true;` |
 | **P1** | `GET_CURRENT_SOFTWARE_FRAMEBUFFER` (40) | 完全未处理 | **性能优化**：允许软件渲染核心直接写 frontend 的 framebuffer，避免一次内存拷贝。对软件渲染路径很有价值。 | 在 `video_sw.c` 中实现：若当前为软件后端，返回指向当前 SDL 纹理像素缓冲区的指针。需要配合 `SDL_LockTexture` / `SDL_UnlockTexture` 的生命周期。 |
@@ -41,7 +31,6 @@
 | **P1** | `SET_MINIMUM_AUDIO_LATENCY` (63) | 完全未处理 | 核心请求最小音频延迟，用于**低延迟模式**。 | 在 `audio.c` 初始化时参考此值调整缓冲区大小。当前固定 64ms，可按此值重新计算。 |
 | **P1** | `GET_USERNAME` (38) | 完全未处理 | 联机/排行榜相关核心会查询玩家名称。 | 添加 `--username <name>` CLI 参数，存于 `g_frontend.username`。无配置时返回 `NULL`。 |
 | **P1** | `SET_MEMORY_MAPS` (36) | 完全未处理 | 用于 achievements、rewind、调试。一些核心会主动设置内存映射。 | 接收 `retro_memory_map`，简单保存到全局变量。可先只记录日志并返回 `true`，为将来 achievements / rewind 打基础。 |
-| **P1** | `--config <file>` CLI 参数 / 键位映射配置 | 缺失 | 键位硬编码在 `input.c` 中，用户无法自定义。**所有可玩性相关的配置都应支持。** | 先实现一个简单的 key=value 配置文件解析器（或直接用现有变量表），把 `SDL_SCANCODE_*` 到 `RETRO_DEVICE_ID_JOYPAD_*` 的映射外置。CLI 可支持 `--config keys.cfg`。 |
 | **P1** | `--lang <code>` CLI 参数 | 缺失 | `GET_LANGUAGE` 目前固定返回 `ENGLISH`。 | 添加 CLI 参数映射到 `retro_language` 枚举，存入 `g_frontend.language`。 |
 
 ---
@@ -54,7 +43,6 @@
 |:---:|---|:---:|---|---|
 | **P2** | `SET_SUBSYSTEM_INFO` (34) | 完全未处理 | 用于 Sufami Turbo、BS-X 等特殊子系统。只有特定 SNES 核心使用。 | 接收 `retro_subsystem_info` 数组，记录子系统名称和识别符。返回 `true`。CLI 可扩展为 `pureretro <core> <subsystem> <content>`。 |
 | **P2** | `SET_SERIALIZATION_QUIRKS` (44) / `SET_HW_SHARED_CONTEXT` (45) | 完全未处理 | 前者影响 savestate 序列化行为；后者影响 GL 上下文共享。**与 rewind/savestate 相关**，但 PureRetro 目前没有这些功能。 | 前者记录 `retro_serialization_quirks` 到全局状态；后者对 GL 后端设置 `SDL_GL_SHARE_WITH_CURRENT_CONTEXT` 标志。 |
-| **P2** | `GET_VFS_INTERFACE` (45) | 完全未处理 | RetroArch 风格的虚拟文件系统，某些核心（如 PPSSPP）会查询以替换标准文件 IO。 | 实现一个轻量 VFS wrapper，将 `retro_vfs_interface` 的 open/read/write/close 映射到标准 `fopen`/`fread`/`fwrite`/`fclose`。 |
 | **P2** | `SET_PROC_ADDRESS_CALLBACK` (33) | 完全未处理 | 某些 OpenGL core 需要加载 HW render 之外的额外符号。 | 在 `video_gl.c` 中，把 `SDL_GL_GetProcAddress` 包装进 `retro_get_proc_address_interface`，返回给核心。 |
 | **P2** | `SET_CONTENT_INFO_OVERRIDE` (65) | 完全未处理 | 较新的 API，允许核心覆盖内容文件的扩展名/需求检测。 | 接收并保存 `retro_content_info_override` 数组，返回 `true`。影响 `retro_load_game` 的扩展名检查逻辑。 |
 | **P2** | `GET_GAME_INFO_EXT` (66) | 完全未处理 | 较新的 API，提供比 `retro_game_info` 更丰富的内容元数据。 | 在 `core_init` 中若核心查询此接口，返回带 `meta` 字段的扩展信息。需根据加载的文件提取元数据（如 CRC32）。 |
@@ -110,10 +98,10 @@
 
 若选择下一步 immediate 工作，建议按此顺序：
 
-1. **`SET_GEOMETRY`** — 兼容性收益最大，大量核心动态调分辨率依赖它。
-2. **`GET_INPUT_BITMASKS` + `GET_CORE_OPTIONS_VERSION` + `SET_CORE_OPTIONS_V2` 系列** — 现代核心标准选项注册，V2 已成主流。
-3. **`SET_KEYBOARD_CALLBACK`** — 使电脑模拟器核心（DOSBox、C64、Amiga）真正可玩。
-4. **`SET_MESSAGE_EXT` + `GET_MESSAGE_INTERFACE_VERSION`** — 新核心状态/错误提示的标配。
-5. **`--system-dir` / `--save-dir` CLI 参数 + 键位映射配置** — 用户可配置性是 frontend 成熟度的标志。
+1. **`SET_CONTROLLER_INFO`** — 多端口核心兼容性基础，提升 N64/PS1 模拟器支持度。
+2. **`SET_DISK_CONTROL_EXT_INTERFACE` + `GET_DISK_CONTROL_INTERFACE_VERSION`** — 多盘游戏（PS1 CD、PC Engine）换盘功能。
+3. **`GET_CURRENT_SOFTWARE_FRAMEBUFFER`** — 软件渲染路径性能优化，零拷贝渲染。
+4. **`GET_AUDIO_VIDEO_ENABLE` + `GET_FASTFORWARDING` + `GET_TARGET_REFRESH_RATE`** — 现代核心的标准查询接口，实现简单但兼容性收益大。
+5. **`--lang` CLI 参数 + `GET_USERNAME`** — 国际化与个性化配置基础。
 
 这样既能显著提升核心兼容性，又保持了 "minimal by design" 的哲学。
