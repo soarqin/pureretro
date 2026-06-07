@@ -30,6 +30,13 @@ int16_t input_state_joypad(unsigned port, unsigned id);
  * Returns a bitmask of RETRO_DEVICE_ID_JOYPAD_* values. */
 uint16_t input_state_joypad_mask(unsigned port);
 
+/* Load a key remapping configuration file.
+ * Returns true on success, false on failure. */
+bool input_load_keymap(const char *path);
+
+/* Reset the keymap to the built-in defaults. */
+void input_free_keymap(void);
+
 #ifdef __cplusplus
 }
 #endif
