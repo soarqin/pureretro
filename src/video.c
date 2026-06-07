@@ -36,6 +36,43 @@ static const struct video_backend *const g_backends[] = {
 static const size_t g_backend_count =
     sizeof(g_backends) / sizeof(g_backends[0]);
 
+/* Compute the initial window size based on the core's base resolution.
+ * If --scale was specified, use it as an integer multiplier.
+ * Otherwise, auto-scale so the smaller dimension is at least 480px
+ * while preserving aspect ratio, but never smaller than 1x. */
+static void compute_window_size(int *out_w, int *out_h)
+{
+    unsigned base_w = g_av_info.geometry.base_width;
+    unsigned base_h = g_av_info.geometry.base_height;
+
+    if (base_w == 0 || base_h == 0) {
+        *out_w = 640;
+        *out_h = 480;
+        return;
+    }
+
+    if (g_frontend.window_scale > 0) {
+        *out_w = (int)(base_w * g_frontend.window_scale);
+        *out_h = (int)(base_h * g_frontend.window_scale);
+        return;
+    }
+
+    const unsigned min_px = 480;
+    if (base_w < base_h) {
+        *out_w = (int)(base_w * min_px / base_h);
+        *out_h = (int)min_px;
+    } else {
+        *out_w = (int)min_px;
+        *out_h = (int)(base_h * min_px / base_w);
+    }
+
+    /* Never scale below 1x. */
+    if (*out_w < (int)base_w)
+        *out_w = (int)base_w;
+    if (*out_h < (int)base_h)
+        *out_h = (int)base_h;
+}
+
 static const struct video_backend *find_backend(enum retro_hw_context_type type)
 {
     for (size_t i = 0; i < g_backend_count; ++i) {
@@ -154,13 +191,15 @@ bool video_set_hw_render(struct retro_hw_render_callback *hw)
 
     if (!v->window) {
         SDL_WindowFlags flags = new_backend->window_flags();
-        v->window = SDL_CreateWindow("PureRetro", 640, 480, flags);
+        int win_w, win_h;
+        compute_window_size(&win_w, &win_h);
+        v->window = SDL_CreateWindow("PureRetro", win_w, win_h, flags);
         if (!v->window) {
             fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
             return false;
         }
-        fprintf(stderr, "Created window with flags 0x%llx for renderer %s\n",
-                (unsigned long long)flags, new_backend->name);
+        fprintf(stderr, "Created window %dx%d with flags 0x%llx for renderer %s\n",
+                win_w, win_h, (unsigned long long)flags, new_backend->name);
     }
 
     void *ctx = NULL;
@@ -274,12 +313,16 @@ bool video_ensure_software_renderer(void)
         return true;
 
     if (!v->window) {
-        v->window = SDL_CreateWindow("PureRetro", 640, 480,
+        int win_w, win_h;
+        compute_window_size(&win_w, &win_h);
+        v->window = SDL_CreateWindow("PureRetro", win_w, win_h,
                                      sw_backend.window_flags());
         if (!v->window) {
             fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
             return false;
         }
+        fprintf(stderr, "Created window %dx%d for software renderer\n",
+                win_w, win_h);
     }
 
     void *ctx = NULL;

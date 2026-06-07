@@ -376,19 +376,6 @@ int main(int argc, char *argv[])
         }
     }
 
-    /* Resize window to integer scale if requested */
-    if (g_frontend.window_scale > 0) {
-        unsigned base_w = g_av_info.geometry.base_width;
-        unsigned base_h = g_av_info.geometry.base_height;
-        if (base_w > 0 && base_h > 0) {
-            unsigned w = base_w * g_frontend.window_scale;
-            unsigned h = base_h * g_frontend.window_scale;
-            if (w <= FRONTEND_MAX_WIDTH && h <= FRONTEND_MAX_HEIGHT) {
-                SDL_SetWindowSize(g_frontend.video.window, (int)w, (int)h);
-            }
-        }
-    }
-
     /* Initialize audio now that we know the core's sample rate */
     if (!g_frontend.no_audio && !audio_init(g_av_info.timing.sample_rate)) {
         fprintf(stderr, "Warning: failed to initialize audio\n");
