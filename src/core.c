@@ -16,6 +16,7 @@
 #include "video.h"
 #include "audio.h"
 #include "input.h"
+#include "vfs.h"
 
 struct core_functions g_core;
 struct retro_system_av_info g_av_info;
@@ -667,6 +668,18 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         }
         fprintf(stderr, "GET_HW_RENDER_INTERFACE: returning %p\n",
                 (const void *)*iface);
+        return true;
+    }
+
+    case RETRO_ENVIRONMENT_GET_VFS_INTERFACE: {
+        if (!require_data(cmd, data))
+            return false;
+        struct retro_vfs_interface_info *info =
+            (struct retro_vfs_interface_info *)data;
+        if (info->required_interface_version > 1)
+            return false;
+        info->iface = vfs_get_interface();
+        info->required_interface_version = 1;
         return true;
     }
 

@@ -43,6 +43,7 @@ set(PURERETRO_SOURCES
     src/video_gl.c
     src/audio.c
     src/input.c
+    src/vfs.c
 )
 
 set(PURERETRO_HEADERS
@@ -56,6 +57,7 @@ set(PURERETRO_HEADERS
     src/video_gl.h
     src/audio.h
     src/input.h
+    src/vfs.h
 )
 
 if(PURERETRO_ENABLE_VULKAN)
