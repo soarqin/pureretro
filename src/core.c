@@ -550,6 +550,12 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
     case RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE:
         return false;
 
+    case RETRO_ENVIRONMENT_GET_INPUT_BITMASKS:
+        if (!require_data(cmd, data))
+            return false;
+        *(bool *)data = true;
+        return true;
+
     case RETRO_ENVIRONMENT_GET_INPUT_DEVICE_CAPABILITIES:
         if (!require_data(cmd, data))
             return false;
@@ -589,6 +595,17 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         fprintf(stderr, "Core queried save directory: %s\n",
                 g_frontend.system_directory ? g_frontend.system_directory : "(null)");
         return true;
+
+    case RETRO_ENVIRONMENT_SET_GEOMETRY: {
+        if (!require_data(cmd, data))
+            return false;
+        const struct retro_game_geometry *geo =
+            (const struct retro_game_geometry *)data;
+        video_update_geometry(geo->base_width, geo->base_height,
+                              geo->max_width, geo->max_height,
+                              geo->aspect_ratio);
+        return true;
+    }
 
     case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO: {
         if (!require_data(cmd, data))
