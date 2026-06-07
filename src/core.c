@@ -404,7 +404,11 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
 
             if (choices) {
                 const char *p = choices;
-                while (*p && val_count < 63) {
+                while (*p) {
+                    if (val_count >= 63) {
+                        ok = false;
+                        break;
+                    }
                     const char *end = p;
                     while (*end && *end != '|')
                         ++end;
@@ -422,6 +426,12 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
                     p = end;
                 }
             }
+
+            if (!ok) {
+                for (size_t i = 0; i < val_count; ++i)
+                    free((char *)values[i]);
+                break;
+            }
             values[val_count] = NULL;
 
             if (!core_options_table_add(&g_frontend.core_options,
@@ -435,6 +445,9 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
             if (!ok)
                 break;
         }
+
+        if (!ok)
+            core_options_table_clear(&g_frontend.core_options);
 
         size_t seeded = 0;
         size_t total = core_options_table_count(&g_frontend.core_options);
@@ -549,7 +562,8 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         if (!core_options_table_set_value(&g_frontend.core_options,
                                           var->key, var->value))
             return false;
-        variable_table_set(&g_frontend.disk_overrides, var->key, var->value);
+        if (!variable_table_set(&g_frontend.disk_overrides, var->key, var->value))
+            return false;
         return true;
     }
 
