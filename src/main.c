@@ -5,6 +5,7 @@
  * and runs the main emulation loop.
  */
 
+#define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,6 +34,8 @@ static void print_usage(const char *argv0)
     fprintf(stderr, "  --variable <k=v>    Override a core option variable\n");
     fprintf(stderr, "  --portable          Portable mode: use the current directory as the\n");
     fprintf(stderr, "                      config base (system files in ./system)\n");
+    fprintf(stderr, "  --system-dir <path> Override system directory (BIOS/firmware)\n");
+    fprintf(stderr, "  --save-dir <path>   Override save directory (SRAM/memory cards)\n");
     fprintf(stderr, "  --config <path>     Load key remapping configuration file\n");
 }
 
@@ -95,6 +98,24 @@ static bool parse_args(int argc, char *argv[])
             g_frontend.no_audio = true;
         } else if (strcmp(argv[i], "--portable") == 0) {
             g_frontend.portable = true;
+        } else if (strcmp(argv[i], "--system-dir") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--system-dir requires a path\n");
+                print_usage(argv[0]);
+                return false;
+            }
+            ++i;
+            free(g_frontend.system_directory);
+            g_frontend.system_directory = strdup(argv[i]);
+        } else if (strcmp(argv[i], "--save-dir") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--save-dir requires a path\n");
+                print_usage(argv[0]);
+                return false;
+            }
+            ++i;
+            free(g_frontend.save_directory);
+            g_frontend.save_directory = strdup(argv[i]);
         } else if (strcmp(argv[i], "--render") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "--render requires an argument (vk, gl, or sw)\n");
@@ -158,6 +179,10 @@ static bool parse_args(int argc, char *argv[])
  * system directory will simply error out). */
 static void set_system_directory(void)
 {
+    /* If --system-dir was explicitly given, skip automatic resolution. */
+    if (g_frontend.system_directory)
+        return;
+
     if (g_frontend.portable) {
         /* Portable mode: keep all data alongside the binary's working
          * directory. The system directory is "<cwd>/system". */
@@ -231,6 +256,8 @@ static void frontend_shutdown(void)
     video_shutdown();
     free(g_frontend.system_directory);
     g_frontend.system_directory = NULL;
+    free(g_frontend.save_directory);
+    g_frontend.save_directory = NULL;
     SDL_Quit();
 }
 

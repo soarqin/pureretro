@@ -486,9 +486,12 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
     case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY:
         if (!require_data(cmd, data))
             return false;
-        *(const char **)data = g_frontend.system_directory;
+        const char *dir = g_frontend.save_directory
+                          ? g_frontend.save_directory
+                          : g_frontend.system_directory;
+        *(const char **)data = dir;
         fprintf(stderr, "Core queried save directory: %s\n",
-                g_frontend.system_directory ? g_frontend.system_directory : "(null)");
+                dir ? dir : "(null)");
         return true;
 
     case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO: {
