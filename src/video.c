@@ -285,9 +285,33 @@ void video_update_geometry(unsigned base_width, unsigned base_height,
         video_resize(max_width, max_height);
     }
 
+    /* Resize the window to match the new base resolution. */
+    video_resize_window_to_geometry();
+
     fprintf(stderr, "Geometry updated: %ux%u (max %ux%u) aspect %.3f\n",
             base_width, base_height, max_width, max_height,
             aspect_ratio > 0.0f ? aspect_ratio : 0.0f);
+}
+
+void video_resize_window_to_geometry(void)
+{
+    struct video_state *v = &g_frontend.video;
+    if (!v->window)
+        return;
+
+    /* Don't resize while fullscreen — the display owns the size. */
+    if (g_frontend.fullscreen)
+        return;
+
+    unsigned base_w = g_av_info.geometry.base_width;
+    unsigned base_h = g_av_info.geometry.base_height;
+    if (base_w == 0 || base_h == 0)
+        return;
+
+    int win_w, win_h;
+    compute_window_size(&win_w, &win_h);
+    SDL_SetWindowSize(v->window, win_w, win_h);
+    fprintf(stderr, "Window resized to %dx%d\n", win_w, win_h);
 }
 
 bool video_get_hw_render_interface(const struct retro_hw_render_interface **out)

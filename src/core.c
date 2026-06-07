@@ -230,6 +230,12 @@ bool core_init(const char *content_path)
             g_av_info.timing.fps,
             g_av_info.timing.sample_rate);
 
+    /* For HW cores the window was created during SET_HW_RENDER before
+     * AV info was available. Resize it now that we know the real resolution. */
+    if (g_frontend.video.hw_render_enabled && g_frontend.video.window) {
+        video_resize_window_to_geometry();
+    }
+
     /* Notify the core that the HW context is ready. This must happen after
      * retro_load_game returns so the core has finished its own setup. */
     if (g_frontend.video.hw_render_enabled && g_frontend.video.hw.context_reset) {

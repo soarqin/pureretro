@@ -60,6 +60,10 @@ void video_update_geometry(unsigned base_width, unsigned base_height,
                            unsigned max_width, unsigned max_height,
                            float aspect_ratio);
 
+/* Resize the window to match the current base resolution in g_av_info,
+ * unless fullscreen is active. No-op if no window exists. */
+void video_resize_window_to_geometry(void);
+
 /* Populate *out with a pointer to the backend-owned hardware render
  * interface (e.g. retro_hw_render_interface_vulkan for Vulkan).
  * Returns false if the active backend doesn't have one (SW, GL).
