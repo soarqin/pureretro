@@ -335,8 +335,7 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
             return false;
         const struct retro_keyboard_callback *cb =
             (const struct retro_keyboard_callback *)data;
-        if (cb)
-            g_frontend.keyboard_callback = *cb;
+        g_frontend.keyboard_callback = *cb;
         return true;
     }
 
@@ -535,6 +534,21 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         }
         fprintf(stderr, "GET_HW_RENDER_INTERFACE: returning %p\n",
                 (const void *)*iface);
+        return true;
+    }
+
+    case RETRO_ENVIRONMENT_GET_MESSAGE_INTERFACE_VERSION:
+        if (!require_data(cmd, data))
+            return false;
+        *(unsigned *)data = 1;
+        return true;
+
+    case RETRO_ENVIRONMENT_SET_MESSAGE_EXT: {
+        if (!require_data(cmd, data))
+            return false;
+        const struct retro_message_ext *msg =
+            (const struct retro_message_ext *)data;
+        fprintf(stderr, "[CORE] %s\n", msg->msg);
         return true;
     }
 
