@@ -660,11 +660,15 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
             (const struct retro_core_option_definition *)data;
         core_options_table_clear(&g_frontend.core_options);
         bool ok = add_options_from_v1_defs(defs);
+        if (!ok) {
+            core_options_table_clear(&g_frontend.core_options);
+            return false;
+        }
         size_t seeded = seed_disk_overrides_from_defaults();
         size_t total = core_options_table_count(&g_frontend.core_options);
         fprintf(stderr, "Core registered %zu options (%zu seeded from defaults)\n",
                 total, seeded);
-        return ok;
+        return true;
     }
 
     case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL: {
@@ -676,11 +680,15 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         bool ok = true;
         if (opts->us)
             ok = add_options_from_v1_defs(opts->us);
+        if (!ok) {
+            core_options_table_clear(&g_frontend.core_options);
+            return false;
+        }
         size_t seeded = seed_disk_overrides_from_defaults();
         size_t total = core_options_table_count(&g_frontend.core_options);
         fprintf(stderr, "Core registered %zu options (%zu seeded from defaults)\n",
                 total, seeded);
-        return ok;
+        return true;
     }
 
     case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2: {
@@ -690,11 +698,15 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
             (const struct retro_core_options_v2 *)data;
         core_options_table_clear(&g_frontend.core_options);
         bool ok = add_options_from_v2_defs(opts->definitions);
+        if (!ok) {
+            core_options_table_clear(&g_frontend.core_options);
+            return false;
+        }
         size_t seeded = seed_disk_overrides_from_defaults();
         size_t total = core_options_table_count(&g_frontend.core_options);
         fprintf(stderr, "Core registered %zu options (%zu seeded from defaults)\n",
                 total, seeded);
-        return ok;
+        return true;
     }
 
     case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL: {
@@ -706,11 +718,15 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         bool ok = true;
         if (opts->us)
             ok = add_options_from_v2_defs(opts->us->definitions);
+        if (!ok) {
+            core_options_table_clear(&g_frontend.core_options);
+            return false;
+        }
         size_t seeded = seed_disk_overrides_from_defaults();
         size_t total = core_options_table_count(&g_frontend.core_options);
         fprintf(stderr, "Core registered %zu options (%zu seeded from defaults)\n",
                 total, seeded);
-        return ok;
+        return true;
     }
 
     case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK: {
@@ -718,8 +734,7 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
             return false;
         const struct retro_core_options_update_display_callback *cb =
             (const struct retro_core_options_update_display_callback *)data;
-        if (cb->callback)
-            g_frontend.core_options_update_display_callback = cb->callback;
+        g_frontend.core_options_update_display_callback = cb->callback;
         return true;
     }
 
