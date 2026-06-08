@@ -841,6 +841,157 @@ static size_t seed_disk_overrides_from_defaults(void)
     return seeded;
 }
 
+/* ------------------------------------------------------------------ */
+/* Environment dispatch table (R1)                                    */
+/*                                                                    */
+/* Each entry registers a handler for a single RETRO_ENVIRONMENT_*    */
+/* command. Lookup tries the raw cmd first (preserving the            */
+/* EXPERIMENTAL flag) so colliding pairs like SET_SERIALIZATION_QUIRKS*/
+/* (44) and SET_HW_SHARED_CONTEXT (44|EXP) can have distinct          */
+/* handlers (I-10). If no exact match is found we fall back to the    */
+/* EXP-stripped cmd: most callbacks behave identically whether the    */
+/* core ORs in EXPERIMENTAL or not (some cores like Beetle PSX HW do),*/
+/* so handlers only need to register once with the canonical value.   */
+/*                                                                    */
+/* Handlers take a frontend pointer + the raw `data` argument so they */
+/* can be unit-tested in isolation against a stub frontend.           */
+/* ------------------------------------------------------------------ */
+
+typedef bool (*env_handler_fn)(struct frontend_state *fe, void *data);
+
+struct env_handler_entry {
+    unsigned cmd;            /* Raw cmd including EXPERIMENTAL if applicable */
+    const char *name;        /* For diagnostics */
+    env_handler_fn handler;
+};
+
+/* ---- Simple handlers (no frontend mutation beyond a single field) ---- */
+
+static bool env_get_can_dupe(struct frontend_state *fe, void *data)
+{
+    (void)fe;
+    if (!data) return false;
+    *(bool *)data = true;
+    return true;
+}
+
+static bool env_get_overscan(struct frontend_state *fe, void *data)
+{
+    (void)fe;
+    if (!data) return false;
+    *(bool *)data = false;
+    return true;
+}
+
+static bool env_shutdown(struct frontend_state *fe, void *data)
+{
+    (void)data;
+    fe->running = false;
+    return true;
+}
+
+static bool env_set_message(struct frontend_state *fe, void *data)
+{
+    (void)fe;
+    if (!data) return false;
+    const struct retro_message *msg = (const struct retro_message *)data;
+    LOG_INFO("[CORE] %s", msg->msg);
+    return true;
+}
+
+static bool env_set_performance_level(struct frontend_state *fe, void *data)
+{
+    (void)fe;
+    if (!data) return false;
+    LOG_INFO("Core performance level hint: %u", *(const unsigned *)data);
+    return true;
+}
+
+static bool env_get_system_directory(struct frontend_state *fe, void *data)
+{
+    if (!data) return false;
+    *(const char **)data = fe->system_directory;
+    LOG_DEBUG("Core queried system directory: %s",
+              fe->system_directory ? fe->system_directory : "(null)");
+    return true;
+}
+
+static bool env_get_libretro_path(struct frontend_state *fe, void *data)
+{
+    if (!data) return false;
+    *(const char **)data = fe->core_path;
+    return true;
+}
+
+static bool env_get_core_assets_directory(struct frontend_state *fe, void *data)
+{
+    if (!data) return false;
+    *(const char **)data = fe->core_assets_directory;
+    return true;
+}
+
+static bool env_get_playlist_directory(struct frontend_state *fe, void *data)
+{
+    if (!data) return false;
+    *(const char **)data = fe->playlist_directory;
+    return true;
+}
+
+static bool env_get_file_browser_start_directory(struct frontend_state *fe, void *data)
+{
+    if (!data) return false;
+    *(const char **)data = fe->file_browser_directory;
+    return true;
+}
+
+static bool env_set_support_no_game(struct frontend_state *fe, void *data)
+{
+    (void)fe; (void)data;
+    return true;
+}
+
+static bool env_set_input_descriptors(struct frontend_state *fe, void *data)
+{
+    (void)fe; (void)data;
+    return false;
+}
+
+static const struct env_handler_entry g_env_table[] = {
+    /* Trivial getters / setters migrated in R1a. Remaining handlers are
+     * still served by the legacy switch below; R1b/R1c will migrate them. */
+    { RETRO_ENVIRONMENT_GET_CAN_DUPE,                     "GET_CAN_DUPE",                     env_get_can_dupe                     },
+    { RETRO_ENVIRONMENT_GET_OVERSCAN,                     "GET_OVERSCAN",                     env_get_overscan                     },
+    { RETRO_ENVIRONMENT_SHUTDOWN,                         "SHUTDOWN",                         env_shutdown                         },
+    { RETRO_ENVIRONMENT_SET_MESSAGE,                      "SET_MESSAGE",                      env_set_message                      },
+    { RETRO_ENVIRONMENT_SET_PERFORMANCE_LEVEL,            "SET_PERFORMANCE_LEVEL",            env_set_performance_level            },
+    { RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY,             "GET_SYSTEM_DIRECTORY",             env_get_system_directory             },
+    { RETRO_ENVIRONMENT_GET_LIBRETRO_PATH,                "GET_LIBRETRO_PATH",                env_get_libretro_path                },
+    { RETRO_ENVIRONMENT_GET_CORE_ASSETS_DIRECTORY,        "GET_CORE_ASSETS_DIRECTORY",        env_get_core_assets_directory        },
+    { RETRO_ENVIRONMENT_GET_PLAYLIST_DIRECTORY,           "GET_PLAYLIST_DIRECTORY",           env_get_playlist_directory           },
+    { RETRO_ENVIRONMENT_GET_FILE_BROWSER_START_DIRECTORY, "GET_FILE_BROWSER_START_DIRECTORY", env_get_file_browser_start_directory },
+    { RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME,              "SET_SUPPORT_NO_GAME",              env_set_support_no_game              },
+    { RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS,            "SET_INPUT_DESCRIPTORS",            env_set_input_descriptors            },
+};
+
+static const struct env_handler_entry *env_table_lookup(unsigned cmd)
+{
+    /* Pass 1: exact raw cmd match (preserves EXP for I-10 collision pairs). */
+    for (size_t i = 0; i < sizeof(g_env_table) / sizeof(g_env_table[0]); ++i) {
+        if (g_env_table[i].cmd == cmd)
+            return &g_env_table[i];
+    }
+    /* Pass 2: stripped EXP fallback. Lets cores OR in EXPERIMENTAL without
+     * needing a duplicate table entry for every handler. */
+    unsigned stripped = cmd & ~RETRO_ENVIRONMENT_EXPERIMENTAL;
+    if (stripped == cmd)
+        return NULL;
+    for (size_t i = 0; i < sizeof(g_env_table) / sizeof(g_env_table[0]); ++i) {
+        if (g_env_table[i].cmd == stripped)
+            return &g_env_table[i];
+    }
+    return NULL;
+}
+
 bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
 {
     /* Some cores (e.g. Beetle PSX HW) call callbacks with the experimental
@@ -848,6 +999,13 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
      * project targets, strip the flag and process the base callback. The
      * raw value is kept for diagnostics. */
     const unsigned raw_cmd = cmd;
+
+    /* R1: try the dispatch table first. Handlers migrated to the table
+     * short-circuit the legacy switch below. */
+    const struct env_handler_entry *entry = env_table_lookup(raw_cmd);
+    if (entry)
+        return entry->handler(&g_frontend, data);
+
     cmd &= ~RETRO_ENVIRONMENT_EXPERIMENTAL;
 
     switch (cmd) {
