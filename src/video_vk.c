@@ -251,9 +251,11 @@ static bool vk_swapchain_create(struct video_vk_context *ctx, SDL_Window *window
     free(ctx->swapchain_images);
     free(ctx->swapchain_views);
     free(ctx->cmd_buffers);
+    free(ctx->images_in_flight);
     ctx->swapchain_images = NULL;
     ctx->swapchain_views = NULL;
     ctx->cmd_buffers = NULL;
+    ctx->images_in_flight = NULL;
     ctx->image_count = 0;
 
     VkSurfaceCapabilitiesKHR caps;
@@ -369,8 +371,12 @@ static bool vk_swapchain_create(struct video_vk_context *ctx, SDL_Window *window
     ctx->swapchain_images = calloc(ctx->image_count, sizeof(VkImage));
     ctx->swapchain_views = calloc(ctx->image_count, sizeof(VkImageView));
     ctx->cmd_buffers = calloc(ctx->image_count, sizeof(VkCommandBuffer));
+    /* images_in_flight uses calloc so each slot starts as VK_NULL_HANDLE
+     * (the libretro Vulkan handle type is a pointer or uint64; either way
+     * 0 == VK_NULL_HANDLE). */
+    ctx->images_in_flight = calloc(ctx->image_count, sizeof(VkFence));
     if (!ctx->swapchain_images || !ctx->swapchain_views ||
-        !ctx->cmd_buffers) {
+        !ctx->cmd_buffers || !ctx->images_in_flight) {
         LOG_ERROR("Failed to allocate swapchain arrays");
         return false;
     }
@@ -601,6 +607,7 @@ void video_vk_destroy(struct video_vk_context *ctx)
     free(ctx->swapchain_images);
     free(ctx->swapchain_views);
     free(ctx->cmd_buffers);
+    free(ctx->images_in_flight);
     free(ctx);
 }
 
@@ -611,6 +618,8 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
 
     uint32_t frame_idx = ctx->frame_index % VK_MAX_FRAMES_IN_FLIGHT;
 
+    /* Wait for the frame slot's fence (CPU-side flow-control: caps the
+     * number of frames the CPU may queue ahead of the GPU). */
     vkWaitForFences(ctx->device, 1, &ctx->frame_fence[frame_idx], VK_TRUE, UINT64_MAX);
 
     uint32_t image_index = 0;
@@ -625,6 +634,18 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
     }
     if (!vk_check(r, "vkAcquireNextImageKHR"))
         return;
+
+    /* Per-image guard: image_count may exceed VK_MAX_FRAMES_IN_FLIGHT
+     * (FIFO triple-buffering on most drivers). frame_fence[frame_idx]
+     * only protects the CPU from getting too far ahead; it does NOT
+     * guarantee that this particular swapchain image's previous
+     * submission has finished. If something is still in flight for
+     * image_index, wait on its fence before reusing the image. */
+    if (ctx->images_in_flight[image_index] != VK_NULL_HANDLE) {
+        vkWaitForFences(ctx->device, 1, &ctx->images_in_flight[image_index],
+                        VK_TRUE, UINT64_MAX);
+    }
+    ctx->images_in_flight[image_index] = ctx->frame_fence[frame_idx];
 
     /* Reset fence only after successful acquire to avoid deadlock on failure */
     vkResetFences(ctx->device, 1, &ctx->frame_fence[frame_idx]);
@@ -850,9 +871,11 @@ bool video_vk_resize(struct video_vk_context *ctx, SDL_Window *window)
     free(ctx->swapchain_images);
     free(ctx->swapchain_views);
     free(ctx->cmd_buffers);
+    free(ctx->images_in_flight);
     ctx->swapchain_images = NULL;
     ctx->swapchain_views = NULL;
     ctx->cmd_buffers = NULL;
+    ctx->images_in_flight = NULL;
     ctx->image_count = 0;
 
     return vk_swapchain_create(ctx, window);

@@ -48,6 +48,14 @@ struct video_vk_context
     VkSemaphore render_finished[VK_MAX_FRAMES_IN_FLIGHT];
     VkFence frame_fence[VK_MAX_FRAMES_IN_FLIGHT];
 
+    /* Per-image fence tracking. images_in_flight[i] points to the
+     * frame_fence currently guarding swapchain image i (or VK_NULL_HANDLE
+     * if no submission is outstanding for that image). With image_count
+     * potentially exceeding VK_MAX_FRAMES_IN_FLIGHT, this prevents reuse
+     * of a swapchain image whose previous submission has not yet
+     * completed. Allocated alongside swapchain_images. */
+    VkFence *images_in_flight;
+
     /* Command buffers (one per swapchain image) */
     VkCommandBuffer *cmd_buffers;
 

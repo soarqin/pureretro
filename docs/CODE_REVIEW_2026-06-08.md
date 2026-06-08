@@ -51,7 +51,7 @@ bit0/bit1 互换。C-1 修了之后此 bug 立即导致核心推断"video 关闭
 
 **修复**：加 `if (n < len && ferror(h->fp)) { clearerr(h->fp); return -1; }`
 
-### C-5 Vulkan 三像素 / 二栅栏数据竞争
+### C-5 Vulkan 三像素 / 二栅栏数据竞争 ✅
 
 **位置**：`src/video_vk.c:421-428,612`
 
