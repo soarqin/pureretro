@@ -117,7 +117,7 @@ The `core.c` module implements the frontend's `retro_environment_t`. The table b
 | `GET_HW_RENDER_INTERFACE` | ✅ Implemented | Returns the populated `retro_hw_render_interface_vulkan` when Vulkan is active. |
 | `GET_PREFERRED_HW_RENDER` | ✅ Implemented | Reports the user's `--render` preference. |
 | `SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE` | ✅ Implemented | Calls the core's `create_device` callback for Vulkan. |
-| `GET_SYSTEM_DIRECTORY` | ✅ Implemented | Returns `g_frontend.system_directory` (resolved by `SDL_GetPrefPath` or `--portable`). |
+| `GET_SYSTEM_DIRECTORY` | ✅ Implemented | Returns `g_frontend.system_directory` (resolved by `--system-dir`, `SDL_GetPrefPath`, or `--portable`). |
 | `GET_SAVE_DIRECTORY` | ✅ Implemented | Returns `g_frontend.save_directory`, falling back to system directory. |
 | `GET_CORE_ASSETS_DIRECTORY` | ✅ Implemented | Returns `g_frontend.core_assets_directory` (settable via `--core-assets-dir`). |
 | `GET_LOG_INTERFACE` | ✅ Implemented | Bridges core log messages to the loglevel-aware logger (`src/log.c`). |
@@ -191,6 +191,7 @@ The `core.c` module implements the frontend's `retro_environment_t`. The table b
 | `--no-audio` | — | Disable audio (`GET_AUDIO_VIDEO_ENABLE` bit 1 cleared). |
 | `--variable <k=v>` | `key=value` | CLI override for a core option (highest priority). |
 | `--portable` | — | Use `./system/` for system directory. |
+| `--system-dir <path>` | dir path | Override system directory (takes precedence over `--portable` and the default SDL pref path). |
 | `--config <path>` | file path | Keymap configuration. |
 | `--disk-index <N>` | 0–255 | Initial disc index for multi-disc content. |
 | `--lang <code>` | locale code | Language for `GET_LANGUAGE` (30+ codes supported). |

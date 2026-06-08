@@ -59,7 +59,7 @@ bit0/bit1 互换。C-1 修了之后此 bug 立即导致核心推断"video 关闭
 
 **修复**：per-image fence 或 image-in-flight 追踪数组。
 
-### C-6 `--config` CLI 分支重复，掩盖了缺失的 `--system-dir`
+### C-6 `--config` CLI 分支重复，掩盖了缺失的 `--system-dir` ✅
 
 **位置**：`src/main.c:161-168` 与 `184-191` 两个相同 `--config`。
 

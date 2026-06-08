@@ -35,6 +35,8 @@ static void print_usage(const char *argv0)
     fprintf(stderr, "  --variable <k=v>    Override a core option variable\n");
     fprintf(stderr, "  --portable          Portable mode: use the current directory as the\n");
     fprintf(stderr, "                      config base (system files in ./system)\n");
+    fprintf(stderr, "  --system-dir <path> Directory reported via GET_SYSTEM_DIRECTORY\n");
+    fprintf(stderr, "                      (overrides --portable and the default SDL pref path)\n");
     fprintf(stderr, "  --config <path>     Load key remapping configuration file\n");
     fprintf(stderr, "  --disk-index <N>    For multi-disc content: initial disk index (0-based)\n");
     fprintf(stderr, "  --lang <code>       Language reported to the core (e.g. en, ja, fr, de,\n");
@@ -181,14 +183,15 @@ static bool parse_args(int argc, char *argv[])
             }
             LOG_INFO("Renderer preference: %s",
                      renderer_name(g_frontend.preferred_renderer));
-        } else if (strcmp(argv[i], "--config") == 0) {
+        } else if (strcmp(argv[i], "--system-dir") == 0) {
             if (i + 1 >= argc) {
-                fprintf(stderr, "--config requires a file path\n");
+                fprintf(stderr, "--system-dir requires a path\n");
                 print_usage(argv[0]);
                 return false;
             }
             ++i;
-            g_frontend.config_path = argv[i];
+            free(g_frontend.system_directory);
+            g_frontend.system_directory = SDL_strdup(argv[i]);
         } else if (strcmp(argv[i], "--variable") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "--variable requires an argument (key=value)\n");
@@ -356,8 +359,12 @@ static bool parse_args(int argc, char *argv[])
 static void set_system_directory(void)
 {
     /* If --system-dir was explicitly given, skip automatic resolution. */
-    if (g_frontend.system_directory)
+    if (g_frontend.system_directory) {
+        LOG_INFO("System directory: %s (from --system-dir)",
+                 g_frontend.system_directory);
+        SDL_CreateDirectory(g_frontend.system_directory);
         return;
+    }
 
     if (g_frontend.portable) {
         /* Portable mode: keep all data alongside the binary's working
