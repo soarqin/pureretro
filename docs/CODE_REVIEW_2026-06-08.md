@@ -23,7 +23,7 @@
 
 **修复**：给上述 6 个 case 标签补上 `& ~RETRO_ENVIRONMENT_EXPERIMENTAL`，并加 CI 守卫（grep 检查 EXP 宏在 case 中是否带剥离）。
 
-### C-2 `GET_AUDIO_VIDEO_ENABLE` 位定义与 libretro 规范不符
+### C-2 `GET_AUDIO_VIDEO_ENABLE` 位定义与 libretro 规范不符 ✅
 
 **位置**：`src/core.c:1293-1295`
 
@@ -37,7 +37,7 @@ bit0/bit1 互换。C-1 修了之后此 bug 立即导致核心推断"video 关闭
 
 **修复**：`RETRO_AV_ENABLE_VIDEO | (g_frontend.no_audio ? 0 : RETRO_AV_ENABLE_AUDIO)`
 
-### C-3 `vfs_seek` 返回值错误
+### C-3 `vfs_seek` 返回值错误 ✅
 
 **位置**：`src/vfs.c:105` — 返回 `fseek()`（成功 = 0），规范要求返回 seek 后绝对字节位置。
 
@@ -45,7 +45,7 @@ bit0/bit1 互换。C-1 修了之后此 bug 立即导致核心推断"video 关闭
 
 **修复**：`if (fseek(...) != 0) return -1; return ftello(h->fp);`
 
-### C-4 `vfs_read`/`vfs_write` 无法区分 EOF 与 I/O 错误
+### C-4 `vfs_read`/`vfs_write` 无法区分 EOF 与 I/O 错误 ✅
 
 **位置**：`src/vfs.c:108-124` — `fread`/`fwrite` 短量时不查 `ferror()`，无法按规范返回 -1。
 
@@ -107,7 +107,7 @@ bit0/bit1 互换。C-1 修了之后此 bug 立即导致核心推断"video 关闭
 ### I-12 `SET_VARIABLES` 数组上限 64 < 规范 128
 **位置**：`core.c:998` — 64 改为 `RETRO_NUM_CORE_OPTION_VALUES_MAX`。
 
-### I-13 VFS 函数指针缺 `RETRO_CALLCONV`
+### I-13 VFS 函数指针缺 `RETRO_CALLCONV` ✅
 **位置**：`vfs.c` 全部 vfs_* 函数 — 加 `RETRO_CALLCONV` 标注。
 
 ---
@@ -124,7 +124,7 @@ bit0/bit1 互换。C-1 修了之后此 bug 立即导致核心推断"video 关闭
 | M-6 | `main.c:390-401` | `SDL_GetPrefPath` 用 `const char*` + cast，应用 `char*` |
 | M-7 | `main.c:439-445` | `SDL_strdup` 混用 `free`/`SDL_free`，统一为 `SDL_free` |
 | M-8 | `main.c:130` | `argv[2][0] != '-'` 拒绝 `-` 开头的内容路径 |
-| M-9 | `vfs.c:71-84` | `vfs_size` 在 `fseek` 失败时 stream 已被偏移到 EOF |
+| M-9 | `vfs.c:71-84` | `vfs_size` 在 `fseek` 失败时 stream 已被偏移到 EOF ✅ |
 | M-10 | `main.c:460-461` | `g_av_info.timing.fps` 未上限校验，过高 fps 可导致忙等 |
 | M-11 | `audio.c:144` | Audio occupancy 未含设备硬件缓冲，underrun 误报 |
 | M-12 | `input.c:331-336` | `enum retro_mod` 用 `|=`，Clang `-Wassign-enum` 警告 |

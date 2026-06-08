@@ -142,8 +142,8 @@ The `core.c` module implements the frontend's `retro_environment_t`. The table b
 | `SET_DISK_CONTROL_EXT_INTERFACE` | ✅ Implemented | Stores callbacks + applies `--disk-index <N>`. |
 | `GET_DISK_CONTROL_INTERFACE_VERSION` | ✅ Implemented | Returns 1. |
 | `GET_CURRENT_SOFTWARE_FRAMEBUFFER` | ✅ Implemented | Zero-copy SW path: locked SDL_Texture pixels; present() detects match and unlocks. |
-| `GET_AUDIO_VIDEO_ENABLE` | ✅ Implemented | Bit 0 = audio (reflected via `--no-audio`), bit 1 = video (always on). |
-| `GET_FASTFORWARDING` | ✅ Implemented | Always returns false (no fast-forward). |
+| `GET_AUDIO_VIDEO_ENABLE` | ✅ Implemented | Bit 0 = video (always on), bit 1 = audio (reflected via `--no-audio`). |
+| `GET_FASTFORWARDING` | ✅ Implemented | Reflects `g_frontend.fast_forward_active`. |
 | `GET_TARGET_REFRESH_RATE` | ✅ Implemented | Reports real display refresh rate via `SDL_GetCurrentDisplayMode` (fallback 60Hz). |
 | `GET_INPUT_MAX_USERS` | ✅ Implemented | Returns 1 (keyboard-only port 0). |
 | `GET_TARGET_SAMPLE_RATE` | ✅ Implemented | Returns core's reported sample rate (fallback 48000). |
@@ -164,7 +164,7 @@ The `core.c` module implements the frontend's `retro_environment_t`. The table b
 | `SET_PROC_ADDRESS_CALLBACK` | ✅ Implemented | Stores `get_proc_address` for optional future use (frontend currently defines no core extension symbols). |
 | `SET_SUBSYSTEM_INFO` | ✅ Implemented | Deep-copies the subsystem array (ident/desc/ROMs/memory). With `--subsystem <ident>` set, `core_init` calls `retro_load_game_special`. |
 | `SET_MEMORY_MAPS` | ✅ Implemented | Deep-copies the descriptor array + addrspace strings. Future use for achievements/rewind. |
-| `SET_FASTFORWARDING_OVERRIDE` | ✅ Implemented | Toggles `g_frontend.fast_forward_active`; run_loop skips the frame-pacing delay and `GET_FASTFORWARDING`/`GET_THROTTLE_STATE`/`GET_AUDIO_VIDEO_ENABLE` reflect the state. |
+| `SET_FASTFORWARDING_OVERRIDE` | ✅ Implemented | Toggles `g_frontend.fast_forward_active`; run_loop skips the frame-pacing delay and `GET_FASTFORWARDING` / `GET_THROTTLE_STATE` reflect the state. |
 | `SET_CONTENT_INFO_OVERRIDE` | ✅ Implemented | Deep-copies the override array. Frontend keeps ROM data alive until shutdown regardless of `persistent_data`. |
 | `GET_GAME_INFO_EXT` | ✅ Implemented | Returns the populated extended info; valid inside `retro_load_game`/`retro_load_game_special`. |
 | `SET_ROTATION` | ✅ Implemented | Stored in `g_frontend.video.rotation` (0/90/180/270 CCW). SW renderer rotates natively; GL/VK support 0 and 180 only (90/270 logged + treated as 0). |
@@ -188,7 +188,7 @@ The `core.c` module implements the frontend's `retro_environment_t`. The table b
 | `--fullscreen`, `-f` | — | Start in fullscreen mode. |
 | `--render <api>` | `vk` / `gl` / `sw` | Hint for `GET_PREFERRED_HW_RENDER`. |
 | `--scale <N>` | 1–16 | Integer window scale. |
-| `--no-audio` | — | Disable audio (`GET_AUDIO_VIDEO_ENABLE` bit 0 cleared). |
+| `--no-audio` | — | Disable audio (`GET_AUDIO_VIDEO_ENABLE` bit 1 cleared). |
 | `--variable <k=v>` | `key=value` | CLI override for a core option (highest priority). |
 | `--portable` | — | Use `./system/` for system directory. |
 | `--config <path>` | file path | Keymap configuration. |

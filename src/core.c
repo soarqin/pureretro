@@ -1287,12 +1287,13 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
     case RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE:
         if (!require_data(cmd, data))
             return false;
-        /* bit0: audio enabled, bit1: video enabled, bit2: fast-forwarding,
-         * bit3: hard disable audio. We never hard-disable; video is always
-         * on; fast-forward reflects the current frontend state. */
-        *(int *)data = (g_frontend.no_audio ? 0 : 1)
-                       | (1 << 1)
-                       | (g_frontend.fast_forward_active ? (1 << 2) : 0);
+        /* libretro spec: bit0 = RETRO_AV_ENABLE_VIDEO (always on),
+         * bit1 = RETRO_AV_ENABLE_AUDIO (gated by --no-audio),
+         * bit2 = RETRO_AV_ENABLE_FAST_SAVESTATES (not used),
+         * bit3 = RETRO_AV_ENABLE_HARD_DISABLE_AUDIO (never set).
+         * Fast-forward state is reported via GET_FASTFORWARDING, not here. */
+        *(int *)data = RETRO_AV_ENABLE_VIDEO
+                       | (g_frontend.no_audio ? 0 : RETRO_AV_ENABLE_AUDIO);
         return true;
 
     case RETRO_ENVIRONMENT_GET_INPUT_MAX_USERS:
