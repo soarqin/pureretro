@@ -134,15 +134,26 @@ void video_process_event(const SDL_Event *event)
     struct video_state *v = &g_frontend.video;
 
     if (event->type != SDL_EVENT_WINDOW_RESIZED &&
-        event->type != SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) {
+        event->type != SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED &&
+        event->type != SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED) {
         return;
     }
 
     if (!v->hw_render_enabled || !v->backend || !v->backend_ctx)
         return;
 
-    unsigned new_w = (unsigned)event->window.data1;
-    unsigned new_h = (unsigned)event->window.data2;
+    unsigned new_w, new_h;
+    if (event->type == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED) {
+        /* DISPLAY_SCALE_CHANGED carries no size; re-query the window so
+         * the backend can rebuild its surface at the new HiDPI factor. */
+        int w = 0, h = 0;
+        SDL_GetWindowSizeInPixels(v->window, &w, &h);
+        new_w = (unsigned)(w > 0 ? w : 0);
+        new_h = (unsigned)(h > 0 ? h : 0);
+    } else {
+        new_w = (unsigned)event->window.data1;
+        new_h = (unsigned)event->window.data2;
+    }
 
     if (!v->backend->resize(v->backend_ctx, v->window, new_w, new_h)) {
         LOG_ERROR("Backend %s failed to resize after window resize",

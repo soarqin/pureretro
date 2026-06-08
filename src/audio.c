@@ -90,6 +90,12 @@ size_t audio_push(const int16_t *data, size_t frames)
     if (!g_frontend.audio_stream)
         return frames;
 
+    /* During fast-forward the core runs many frames per wall-clock second,
+     * so pushing audio at native rate would either pitch-shift or pile up
+     * latency. Drop samples and report them as consumed. */
+    if (g_frontend.fast_forward_active)
+        return frames;
+
     /* Keep the SDL audio queue bounded to avoid multi-second latency.
      *
      * Some cores (notably PPSSPP on the Vulkan backend) can produce

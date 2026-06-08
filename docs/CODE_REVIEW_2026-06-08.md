@@ -80,7 +80,7 @@ bit0/bit1 互换。C-1 修了之后此 bug 立即导致核心推断"video 关闭
 ### I-3 Vulkan swapchain 重建中途失败留下损坏 context ✅
 **位置**：`video_vk.c:243-250` — 新对象存临时变量，全部成功后再 swap。
 
-### I-4 GL FBO resize 不通知核心 context_destroy/reset
+### I-4 GL FBO resize 不通知核心 context_destroy/reset ✅
 **位置**：`video_gl.c:307-319` — resize 时通知核心或原地 reallocate 纹理。
 
 ### I-5 Vulkan 不清除 letterbox/pillarbox 区域 ✅
@@ -89,19 +89,19 @@ bit0/bit1 互换。C-1 修了之后此 bug 立即导致核心推断"video 关闭
 ### I-6 ESC/F11 硬编码拦截与 SET_KEYBOARD_CALLBACK 冲突 ✅
 **位置**：`main.c:472-478` — 交互 callback 活跃时禁用快捷退出。
 
-### I-7 HiDPI/显示缩放变化不触发 backend resize
+### I-7 HiDPI/显示缩放变化不触发 backend resize ✅
 **位置**：`main.c:481-484` — 追加 DISPLAY_SCALE_CHANGED；最小化时暂停 run loop。
 
 ### I-8 `input_process_event` 重复调用 `build_retro_key_table` ✅
 **位置**：`src/input.c:308-312` — 删除重复调用。
 
-### I-9 SRAM 加载时静默截断
+### I-9 SRAM 加载时静默截断 ✅
 **位置**：`core.c:608-615` — 文件 > slot 时拒绝加载。
 
 ### I-10 SERIALIZATION_QUIRKS 与 HW_SHARED_CONTEXT 共用 case 存在 NULL 解引用风险
 **位置**：`core.c:1593-1613` — 消除全局 EXP 剥离或增加 per-case 守卫。
 
-### I-11 Fast-forward 时音频继续按原速推送
+### I-11 Fast-forward 时音频继续按原速推送 ✅
 **位置**：`audio.c:103-105` — ff 时 `audio_push` 直接 return。
 
 ### I-12 `SET_VARIABLES` 数组上限 64 < 规范 128 ✅

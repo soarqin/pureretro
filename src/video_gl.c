@@ -312,10 +312,25 @@ bool video_gl_resize(struct video_gl_context *ctx, unsigned width, unsigned heig
     if (ctx->fbo_width == width && ctx->fbo_height == height)
         return true;
 
+    /* I-4: when the FBO is recreated, its GL name can change and any core
+     * caches that bound the old framebuffer or sized auxiliary textures
+     * to the previous dimensions become stale. Notify the core via the
+     * standard context_destroy / context_reset pair so it can rebuild
+     * its GL resources against the fresh FBO. */
+    if (g_frontend.video.hw.context_destroy)
+        g_frontend.video.hw.context_destroy();
+
     gl_fbo_destroy(ctx);
-    return gl_fbo_create(ctx, width, height,
-                         g_frontend.video.hw.depth,
-                         g_frontend.video.hw.stencil);
+    if (!gl_fbo_create(ctx, width, height,
+                       g_frontend.video.hw.depth,
+                       g_frontend.video.hw.stencil)) {
+        return false;
+    }
+
+    if (g_frontend.video.hw.context_reset)
+        g_frontend.video.hw.context_reset();
+
+    return true;
 }
 
 void video_gl_context_reset(struct video_gl_context *ctx)

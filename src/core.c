@@ -622,7 +622,14 @@ bool core_sram_load(const char *path)
         return false;
     }
 
-    size_t read_size = (size_t)size < dst_size ? (size_t)size : dst_size;
+    if ((size_t)size > dst_size) {
+        LOG_ERROR("SRAM file %s is %ld bytes but core slot is only %zu bytes; "
+                  "refusing to truncate (would corrupt the save)", path, size, dst_size);
+        fclose(fp);
+        return false;
+    }
+
+    size_t read_size = (size_t)size;
     size_t got = fread(dst, 1, read_size, fp);
     fclose(fp);
 

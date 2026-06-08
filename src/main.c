@@ -494,11 +494,26 @@ static void run_loop(void)
                 break;
             case SDL_EVENT_WINDOW_RESIZED:
             case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+            case SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED:
                 video_process_event(&event);
+                break;
+            case SDL_EVENT_WINDOW_MINIMIZED:
+                g_frontend.window_minimized = true;
+                break;
+            case SDL_EVENT_WINDOW_RESTORED:
+            case SDL_EVENT_WINDOW_SHOWN:
+                g_frontend.window_minimized = false;
                 break;
             default:
                 break;
             }
+        }
+
+        /* While minimized: skip core_run/audio entirely and sleep a bit so
+         * we don't peg the CPU. Still pump events. */
+        if (g_frontend.window_minimized) {
+            SDL_DelayNS(16000000ULL);
+            continue;
         }
 
         input_poll();

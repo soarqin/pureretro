@@ -251,6 +251,10 @@ struct frontend_state
     bool ff_override_active;
     bool ff_inhibit_toggle;
 
+    /* True while the window is minimized; the run loop pauses core_run
+     * and audio under this state to avoid burning CPU. */
+    bool window_minimized;
+
     /* Content info overrides (SET_CONTENT_INFO_OVERRIDE).
      * Deep-copied array; strings owned by frontend. Freed in core_unload. */
     struct content_info_override_storage *content_overrides;
