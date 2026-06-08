@@ -22,9 +22,9 @@ PureRetro is a **minimal libretro frontend**. It is educational by design — ev
 - **Windows**: CI-tested (GitHub Actions windows-latest with MSVC and MinGW-w64)
 
 ### CMake Notes
-SDL3 is resolved automatically:
-1. `find_package(SDL3 CONFIG QUIET)` searches the system first.
-2. If not found, `FetchContent` downloads SDL3 3.2.4 release tarball and builds it statically.
+SDL3 and other dependencies are managed via CPM (`cmake/Dependencies.cmake`):
+- By default SDL3 is fetched and built from source (3.2.4 release tarball, static).
+- Pass `-DPURERETRO_PREFER_SYSTEM_SDL3=ON` to prefer a system-installed SDL3 (via `find_package(SDL3 CONFIG)`), falling back to CPM if not found.
 
 ## Language Rule
 
@@ -250,9 +250,11 @@ ctest --test-dir build/ --output-on-failure
 
 To skip tests entirely: `-DPURERETRO_BUILD_TESTS=OFF`.
 
-Tests cover pure functions only: `core_variables_parse`, `core_variables`,
-`vfs` (real tmp files), `log_level_from_string`, `input` keymap parser, CLI
-`parse_cli`. Subsystems requiring live SDL/GL/Vulkan context are not unit-tested.
+Currently `tests/unit/` contains a smoke test only. Upcoming work
+will add coverage for pure-function modules: `core_variables_parse`,
+`core_variables`, `vfs` (real tmp files), `log_level_from_string`,
+`input` keymap parser, CLI `parse_cli`. Subsystems requiring live
+SDL/GL/Vulkan context are intentionally not unit-tested.
 
 ## Agent Workflow
 
