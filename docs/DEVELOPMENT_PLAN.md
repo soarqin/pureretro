@@ -7,10 +7,9 @@
 
 ## 1. 分析范围说明
 
-- **已明确处理（有 `case` 分支）**：如下表所列，共 58 个 command。
-- **完全未处理（走到 `default`）**：约 20 个 command。
-- **已 stub 但值得升级为真实实现**：如 `SET_MEMORY_MAPS` 等。
-- **可配置项缺失**：部分音频/路径参数仍硬编码。
+- **已明确处理（有 `case` 分支）**：如下表所列，共 67 个 command。
+- **完全未处理（走到 `default`）**：约 11 个 command。
+- **可配置项缺失**：无（音频采样率/缓冲区已可 CLI 覆盖）。
 
 ---
 
@@ -60,10 +59,10 @@
 | GET_LANGUAGE | ✅ | 返回 --lang 指定值（默认 ENGLISH） |
 | GET_CURRENT_SOFTWARE_FRAMEBUFFER | ✅ | 零拷贝纹理锁定 |
 | GET_HW_RENDER_INTERFACE | ✅ | 返回 VK 硬件接口 |
-| SET_SUPPORT_ACHIEVEMENTS | ❌ Missing | 完全未处理 |
+| SET_SUPPORT_ACHIEVEMENTS | ✅ | 存储到 g_frontend.core_supports_achievements + INFO 日志 |
 | SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE | ✅ | VK 设备创建协商 |
-| SET_SERIALIZATION_QUIRKS | ❌ Missing | 完全未处理 |
-| SET_HW_SHARED_CONTEXT | ❌ Missing | 完全未处理 |
+| SET_SERIALIZATION_QUIRKS | ✅ | 保留核心写入值 + INFO 日志 |
+| SET_HW_SHARED_CONTEXT | ✅ | 记录标志，下次 GL init 用 SDL_GL_SHARE_WITH_CURRENT_CONTEXT |
 | GET_VFS_INTERFACE | ✅ | stdio VFS 包装 |
 | GET_LED_INTERFACE | 🟡 Stub | 返回 false（不计划实现） |
 | GET_AUDIO_VIDEO_ENABLE | ✅ | 根据 no_audio 设 bit0/bit1 |
@@ -78,8 +77,8 @@
 | GET_PREFERRED_HW_RENDER | ✅ | 返回 renderer 偏好 |
 | GET_DISK_CONTROL_INTERFACE_VERSION | ✅ | 返回 1 |
 | SET_DISK_CONTROL_EXT_INTERFACE | ✅ | 存储回调 + 应用 `--disk-index` |
-| GET_MESSAGE_INTERFACE_VERSION | ❌ Missing | 完全未处理 |
-| SET_MESSAGE_EXT | ❌ Missing | 完全未处理 |
+| GET_MESSAGE_INTERFACE_VERSION | ✅ | 返回 1 |
+| SET_MESSAGE_EXT | ✅ | TARGET_LOG 按消息级别路由，OSD/ALL 走 LOG_INFO |
 | GET_INPUT_MAX_USERS | ✅ | 返回 1（仅键盘 port 0） |
 | SET_AUDIO_BUFFER_STATUS_CALLBACK | ✅ | 存储回调，每帧 retro_run 前推送占用率 |
 | SET_MINIMUM_AUDIO_LATENCY | ✅ | 调整队列上限（不重启 SDL 流） |
@@ -90,10 +89,10 @@
 | SET_CORE_OPTIONS_V2_INTL | ✅ | v2 国际化 |
 | SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK | ✅ | 存储回调 |
 | SET_VARIABLE | ✅ | 运行时变量覆盖 |
-| GET_THROTTLE_STATE | ❌ Missing | 完全未处理 |
-| GET_SAVESTATE_CONTEXT | ❌ Missing | 完全未处理 |
-| GET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_SUPPORT | ❌ Missing | 完全未处理 |
-| GET_JIT_CAPABLE | ❌ Missing | 完全未处理 |
+| GET_THROTTLE_STATE | ✅ | 返回 { RETRO_THROTTLE_NONE, core_fps } |
+| GET_SAVESTATE_CONTEXT | ✅ | 返回 RETRO_SAVESTATE_CONTEXT_NORMAL |
+| GET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_SUPPORT | ✅ | VK 返回 interface_version=2，其余 0 |
+| GET_JIT_CAPABLE | ✅ | 返回 true（桌面平台） |
 | GET_MICROPHONE_INTERFACE | 🟡 Stub | 返回 false（不计划实现） |
 | GET_DEVICE_POWER | ❌ Missing | 完全未处理 |
 | SET_NETPACKET_INTERFACE | ❌ Missing | 完全未处理 |
@@ -108,18 +107,7 @@
 
 ## 3. 高优先级开发队列（P0–P1）
 
-| 优先级 | Command / 配置项 | 当前状态 | 为什么重要 | 基本实现建议 |
-|---|---|---|---|---|
-| **P0** | `--config` 完整 key-mapping 格式文档 + 扩展 | CLI 已解析但无规格 | 用户无法配置按键。当前 `--config` 指向 keymap 文件，但格式未文档化。 | 编写 keymap 配置文件格式规格到 `docs/`；支持更多按键和 CDC 设备（analog）。 |
-| **P1** | `GET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_SUPPORT` (73) | ❌ Missing | 没有这个回调，VK 核心会假设我们只支持 v1 negotiation；而我们的 VK 后端实际上能处理 v2+ | 读取 `retro_hw_render_context_negotiation_interface_type`，VK 返回 `interface_version = N`（与我们实际支持的版本一致），其他返回 0 + true |
-| **P1** | `GET_THROTTLE_STATE` (71) | ❌ Missing | 大量核心在 rewind/FF/normal 之间分支；缺这个回调时它们走错路径 | 返回 `{ RETRO_THROTTLE_NONE, (float)g_av_info.timing.fps }` |
-| **P1** | `GET_SAVESTATE_CONTEXT` (72) | ❌ Missing | 核心据此决定 savestate 中是否能包含指针 | 返回 `RETRO_SAVESTATE_CONTEXT_NORMAL` |
-| **P1** | `GET_JIT_CAPABLE` (74) | ❌ Missing | 桌面平台默认支持 JIT；不实现则核心可能强制走解释器 | 桌面三平台返回 `true`（iOS/Android 才是 false） |
-| **P1** | `GET_MESSAGE_INTERFACE_VERSION` (59) + `SET_MESSAGE_EXT` (60) | ❌ Missing | 现代核心用 ext API 发分类/分级消息；恰好与新 logger 完美契合 | 接收 `retro_message_ext`：`TARGET_LOG` 按 `level` 走 `LOG_*`；`TARGET_OSD`/`ALL` 暂时也走 `LOG_INFO`（无 GUI）。`GET_MESSAGE_INTERFACE_VERSION` 返回 1 |
-| **P1** | `SET_SERIALIZATION_QUIRKS` (44) | ❌ Missing | 核心声明 savestate 量子化怪癖；frontend 不需求任何 quirk，但需 ack | 接收 `uint64_t *`：保留核心写入值不变（我们不强制设任何 quirk），仅记录到 INFO 日志 |
-| **P1** | `SET_SUPPORT_ACHIEVEMENTS` (42) | ❌ Missing | 核心声明支持成就；即便我们不实现 cheevos，承认能让核心走正确路径 | 接收 `const bool *`，记录到 `g_frontend.core_supports_achievements` + INFO 日志 |
-| **P1** | `SET_HW_SHARED_CONTEXT` (44\|EXP) | ❌ Missing | GL 核心请求与 frontend 共享上下文（某些视频解码场景） | GL 后端：记录到 `g_frontend.video.hw_shared_context_requested`，下次创建 GL 上下文时用 `SDL_GL_SHARE_WITH_CURRENT_CONTEXT` |
-| **P1** | `--audio-rate <Hz>` / `--audio-buffer-ms <ms>` | 缺失 | 音频采样率/缓冲区大小硬编码；调试音频问题时无法绕过核心默认 | CLI 参数：`--audio-rate` 覆盖 `g_av_info.timing.sample_rate`；`--audio-buffer-ms` 成为 `audio_set_minimum_latency` 的下限 |
+所有原 P0/P1 项已完成。下一轮推荐见 §8。
 
 ---
 
@@ -171,7 +159,7 @@
 
 ## 7. 历史完成的优先任务
 
-第一轮推荐的 Top 5 immediate 任务已全部完成（详见 `AGENTS.md` 中的回调表）：
+### 第一轮（已完成）
 
 - ✅ Legacy `SET_DISK_CONTROL_INTERFACE` 通过 memcpy 桥接到 EXT
 - ✅ `GET_INPUT_MAX_USERS` + `GET_TARGET_SAMPLE_RATE`
@@ -183,22 +171,36 @@
 并将 libretro `RETRO_ENVIRONMENT_GET_LOG_INTERFACE` 桥接到新 logger，
 支持 `--log-level` 与 `PURERETRO_LOG` 环境变量。
 
+### 第二轮（已完成）
+
+- ✅ `GET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_SUPPORT` — VK 核心 v2 协商路径解锁
+- ✅ `GET_THROTTLE_STATE` — 核心可判断 throttle/frameskip 状态
+- ✅ `GET_SAVESTATE_CONTEXT` — 核心可正确处理 savestate 指针
+- ✅ `GET_JIT_CAPABLE` — 核心可启用动态重编译
+- ✅ `GET_MESSAGE_INTERFACE_VERSION` + `SET_MESSAGE_EXT` — 分级/分类消息路由到 logger
+- ✅ `SET_SERIALIZATION_QUIRKS` — 记录核心 savestate 怪癖
+- ✅ `SET_SUPPORT_ACHIEVEMENTS` — 记录核心成就支持声明
+- ✅ `SET_HW_SHARED_CONTEXT` — GL 共享上下文请求，下次 GL init 时 honored
+- ✅ `--audio-rate <Hz>` + `--audio-buffer-ms <ms>` CLI — 音频参数可从命令行覆盖
+
 ---
 
 ## 8. 推荐下一轮立即执行的 Top 5 任务
 
-延续 "最小代码变更换取最大兼容性收益" 的思路。这一轮所有候选都是几行到几十行的真实现，避开了需要新子系统（FF、subsystem、memory map）的大块工作：
+延续 "最小代码变更换取最大兼容性收益" 的思路。这一轮进入 P2 领域，每项需要小规模新状态或子系统，但依然可控：
 
-1. **`GET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_SUPPORT` (73)** — 没有这个回调，Vulkan 核心会假设我们只支持 v1 协商，但我们的 VK 后端已经能处理更高版本。一个 case 分支即可解锁现代 VK 核心的完整协商路径，**单项收益最大**。
-2. **`GET_THROTTLE_STATE` + `GET_SAVESTATE_CONTEXT` + `GET_JIT_CAPABLE`** — 三个"返回常量"型回调（约 5–8 行/个）。大量核心据此选择默认行为：throttle 让核心判断要不要 frameskip；savestate context 决定是否能把指针写入存档；jit capable 决定是否启用动态重编译。三个一起做，复用同一段日志/测试套路。
-3. **`GET_MESSAGE_INTERFACE_VERSION` + `SET_MESSAGE_EXT`** — 直接利用新 logger：`MESSAGE_TARGET_LOG` 按 `retro_message_ext::level` 走对应 `LOG_*`，`MESSAGE_TARGET_OSD`/`ALL` 临时也走 `LOG_INFO`（无 GUI）。把 stub `SET_MESSAGE` 一起对齐为同一路径。`GET_MESSAGE_INTERFACE_VERSION` 返回 1。
-4. **`SET_SERIALIZATION_QUIRKS` + `SET_SUPPORT_ACHIEVEMENTS` + `SET_HW_SHARED_CONTEXT`** — 三个 "advertise / record / acknowledge" 类回调。各 <10 行；目的就是让核心初始化阶段不要因为 `default: false` 走降级路径。`SET_HW_SHARED_CONTEXT` 真正需要的后续工作（创建 GL 上下文时加 `SDL_GL_SHARE_WITH_CURRENT_CONTEXT`）也可以同步做掉。
-5. **`--audio-rate <Hz>` + `--audio-buffer-ms <ms>` CLI** — 收尾 audio 路径：调试音频卡顿/重采样问题时可以从命令行强行覆盖。`--audio-rate` 覆盖 `g_av_info.timing.sample_rate`，`--audio-buffer-ms` 作为 `audio_set_minimum_latency` 的下限。无新模块，纯参数透传。
+1. **`SET_MEMORY_MAPS` (36)** — 接收 `retro_memory_map` 并保存到全局变量。核心（如 Beetle PSX）使用此声明内存布局；虽然我们暂不消费它，但未来 achievements/rewind 会用到。实现约 20 行（接收 + deep-copy region 数组 + 日志）。
 
-明确**这一轮不做**（理由附在 §4 注释里）：
+2. **`SET_PROC_ADDRESS_CALLBACK` (33)** — 接收并存储 `retro_get_proc_address_t`，记录 INFO 日志。Frontend 暂不定义任何 core extension 符号，所以存储即可。约 10 行。
 
-- `SET_FASTFORWARDING_OVERRIDE`：需要先在 `run_loop` 实现 FF 状态机
-- `SET_SUBSYSTEM_INFO` / `SET_CONTENT_INFO_OVERRIDE` / `GET_GAME_INFO_EXT`：需要 `--subsystem` CLI 和多内容加载支持
-- `SET_MEMORY_MAPS`：当前没有 achievements / rewind 来消费它
-- `SET_PROC_ADDRESS_CALLBACK`：frontend 暂未定义任何 core extension 函数符号
-- `SET_ROTATION` / `SET_FRAME_TIME_CALLBACK`：HW 旋转和 TAS 计时与教学最小化定位不符
+3. **`SET_SUBSYSTEM_INFO` (34) + `--subsystem <ident>` CLI** — 接收并 deep-copy `retro_subsystem_info` 数组（与 SET_CONTROLLER_INFO 同模式），新增 `--subsystem` CLI 用以选择子系统类型。这是解锁 Sufami Turbo / BS-X 等特殊内容的前提。约 50–80 行。
+
+4. **`SET_FASTFORWARDING_OVERRIDE` (64)** — 增加 `g_frontend.fast_forward` 布尔状态；在 `run_loop` 跳过帧延迟逻辑；实现回调让核心可请求强制快进/退出快进。约 30 行核心逻辑 + run_loop 3 行。
+
+5. **`SET_CONTENT_INFO_OVERRIDE` (65) + `GET_GAME_INFO_EXT` (66)** — 两个配套回调：前者让核心声明"我接受哪些扩展名"，后者在 load_game 成功后提供丰富元数据。两者一起实现，约 40–60 行。
+
+明确**这一轮不做**：
+
+- `SET_ROTATION` / `SET_FRAME_TIME_CALLBACK` / `SET_AUDIO_CALLBACK`：P3 级别，教学最小化定位不符
+- `SET_INPUT_DESCRIPTORS` / `SET_CORE_OPTIONS_DISPLAY`：无 GUI 价值低
+- `GET_DEVICE_POWER` / `SET_NETPACKET_INTERFACE` / `GET_NETPLAY_CLIENT_INDEX` / `EXEC_MEM_*`：Not Planned

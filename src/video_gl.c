@@ -229,6 +229,14 @@ bool video_gl_init(SDL_Window *window, struct retro_hw_render_callback *hw,
     if (hw->debug_context)
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_DEBUG_FLAG);
 
+    /* Honor RETRO_ENVIRONMENT_SET_HW_SHARED_CONTEXT: cores using this hint
+     * expect to be able to share resources (e.g. video-decode textures)
+     * with the current GL context. SDL only consults this attribute at
+     * creation time; setting it is a no-op when no current context exists. */
+    if (g_frontend.video.hw_shared_context_requested) {
+        SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT, 1);
+    }
+
     ctx->gl_context = SDL_GL_CreateContext(window);
     if (!ctx->gl_context) {
         LOG_ERROR("SDL_GL_CreateContext failed: %s", SDL_GetError());

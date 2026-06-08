@@ -43,6 +43,9 @@ static void print_usage(const char *argv0)
     fprintf(stderr, "  --core-assets-dir <path>     Directory reported via GET_CORE_ASSETS_DIRECTORY\n");
     fprintf(stderr, "  --playlist-dir <path>        Directory reported via GET_PLAYLIST_DIRECTORY\n");
     fprintf(stderr, "  --file-browser-dir <path>    Directory reported via GET_FILE_BROWSER_START_DIRECTORY\n");
+    fprintf(stderr, "  --audio-rate <Hz>    Override audio sample rate (default: core's rate)\n");
+    fprintf(stderr, "  --audio-buffer-ms <ms>  Override minimum audio buffer latency (default: %d)\n",
+            FRONTEND_AUDIO_BUFFER_MS);
     fprintf(stderr, "  --log-level <lvl>   debug, info (default), warn, or error\n");
     fprintf(stderr, "                      Also settable via PURERETRO_LOG environment variable.\n");
 }
@@ -273,6 +276,38 @@ static bool parse_args(int argc, char *argv[])
             ++i;
             free(g_frontend.file_browser_directory);
             g_frontend.file_browser_directory = SDL_strdup(argv[i]);
+        } else if (strcmp(argv[i], "--audio-rate") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--audio-rate requires a Hz value (e.g. 48000)\n");
+                print_usage(argv[0]);
+                return false;
+            }
+            ++i;
+            char *endptr = NULL;
+            long val = strtol(argv[i], &endptr, 10);
+            if (*endptr != '\0' || val < 4000 || val > 384000) {
+                fprintf(stderr, "Invalid audio rate: '%s' (expected 4000-384000)\n",
+                        argv[i]);
+                print_usage(argv[0]);
+                return false;
+            }
+            g_frontend.audio_rate_override = (unsigned)val;
+        } else if (strcmp(argv[i], "--audio-buffer-ms") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--audio-buffer-ms requires a value in milliseconds\n");
+                print_usage(argv[0]);
+                return false;
+            }
+            ++i;
+            char *endptr = NULL;
+            long val = strtol(argv[i], &endptr, 10);
+            if (*endptr != '\0' || val < 1 || val > 5000) {
+                fprintf(stderr, "Invalid audio buffer: '%s' (expected 1-5000 ms)\n",
+                        argv[i]);
+                print_usage(argv[0]);
+                return false;
+            }
+            g_frontend.audio_buffer_ms_override = (unsigned)val;
         } else if (strcmp(argv[i], "--log-level") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "--log-level requires an argument (debug|info|warn|error)\n");
@@ -525,8 +560,22 @@ int main(int argc, char *argv[])
     }
 
     /* Initialize audio now that we know the core's sample rate */
-    if (!g_frontend.no_audio && !audio_init(g_av_info.timing.sample_rate)) {
-        LOG_WARN("Failed to initialize audio");
+    if (!g_frontend.no_audio) {
+        double rate = (g_frontend.audio_rate_override > 0)
+                      ? (double)g_frontend.audio_rate_override
+                      : g_av_info.timing.sample_rate;
+        if (g_frontend.audio_rate_override > 0) {
+            LOG_INFO("Overriding core sample rate %.2f Hz with %u Hz from --audio-rate",
+                     g_av_info.timing.sample_rate,
+                     g_frontend.audio_rate_override);
+        }
+        if (!audio_init(rate)) {
+            LOG_WARN("Failed to initialize audio");
+        } else if (g_frontend.audio_buffer_ms_override > 0) {
+            audio_set_minimum_latency(g_frontend.audio_buffer_ms_override);
+            LOG_INFO("Audio buffer minimum latency set to %u ms via --audio-buffer-ms",
+                     g_frontend.audio_buffer_ms_override);
+        }
     }
 
     run_loop();

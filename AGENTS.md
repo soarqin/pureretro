@@ -152,6 +152,15 @@ The `core.c` module implements the frontend's `retro_environment_t`. The table b
 | `GET_PLAYLIST_DIRECTORY` | ✅ Implemented | Returns `g_frontend.playlist_directory` (settable via `--playlist-dir`). |
 | `GET_FILE_BROWSER_START_DIRECTORY` | ✅ Implemented | Returns `g_frontend.file_browser_directory` (settable via `--file-browser-dir`). |
 | `SET_DISK_CONTROL_INTERFACE` | ✅ Implemented | Legacy 7-field struct bridged to the EXT path via memcpy. |
+| `GET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_SUPPORT` | ✅ Implemented | Returns `interface_version = 2` for Vulkan; 0 for unknown API types. |
+| `GET_THROTTLE_STATE` | ✅ Implemented | Returns `{ RETRO_THROTTLE_NONE, core_fps }`. |
+| `GET_SAVESTATE_CONTEXT` | ✅ Implemented | Returns `RETRO_SAVESTATE_CONTEXT_NORMAL`. |
+| `GET_JIT_CAPABLE` | ✅ Implemented | Returns true (all desktop targets allow JIT). |
+| `GET_MESSAGE_INTERFACE_VERSION` | ✅ Implemented | Returns 1. |
+| `SET_MESSAGE_EXT` | ✅ Implemented | Routes via logger; `TARGET_LOG` uses message level, OSD/ALL go to INFO. |
+| `SET_SERIALIZATION_QUIRKS` | ✅ Implemented | Logs declared quirks; frontend requires none. |
+| `SET_SUPPORT_ACHIEVEMENTS` | ✅ Implemented | Stored in `g_frontend.core_supports_achievements` + INFO log. |
+| `SET_HW_SHARED_CONTEXT` | ✅ Implemented | Sets `g_frontend.video.hw_shared_context_requested`; honored at next GL context creation via `SDL_GL_SHARE_WITH_CURRENT_CONTEXT`. |
 | `SET_ROTATION` | 📝 Stub | Returns false. |
 | `SET_PERFORMANCE_LEVEL` | ✅ Implemented | Logs the core's hint at INFO level. |
 | `SET_INPUT_DESCRIPTORS` | 📝 Stub | Returns false. |
@@ -183,6 +192,8 @@ The `core.c` module implements the frontend's `retro_environment_t`. The table b
 | `--core-assets-dir <path>` | dir path | Returned by `GET_CORE_ASSETS_DIRECTORY`. |
 | `--playlist-dir <path>` | dir path | Returned by `GET_PLAYLIST_DIRECTORY`. |
 | `--file-browser-dir <path>` | dir path | Returned by `GET_FILE_BROWSER_START_DIRECTORY`. |
+| `--audio-rate <Hz>` | 4000–384000 | Override audio sample rate (default: core's reported rate). |
+| `--audio-buffer-ms <ms>` | 1–5000 | Override minimum audio buffer latency (default: `FRONTEND_AUDIO_BUFFER_MS`). |
 | `--log-level <lvl>` | `debug` / `info` / `warn` / `error` | Override logger threshold (also `PURERETRO_LOG` env var). Default `info`. |
 
 ## Logging

@@ -60,6 +60,11 @@ struct video_state
     /* Hardware render callback (valid for GL/VK) */
     struct retro_hw_render_callback hw;
     bool hw_render_enabled;
+
+    /* Core requested a shared GL context (RETRO_ENVIRONMENT_SET_HW_SHARED_CONTEXT).
+     * Honored when creating the next GL context by setting
+     * SDL_GL_SHARE_WITH_CURRENT_CONTEXT. Has no effect on Vulkan/software. */
+    bool hw_shared_context_requested;
 };
 
 /* Maximum number of input ports we track controller info for.
@@ -164,6 +169,16 @@ struct frontend_state
     char *core_assets_directory;
     char *playlist_directory;
     char *file_browser_directory;
+
+    /* SET_SUPPORT_ACHIEVEMENTS: core claims achievement support. We don't
+     * implement cheevos, but acknowledging it lets cores use the right path. */
+    bool core_supports_achievements;
+
+    /* Audio CLI overrides --audio-rate <Hz> (0 = no override) and
+     * --audio-buffer-ms <ms> (0 = no override). Applied after the core
+     * reports AV info. */
+    unsigned audio_rate_override;
+    unsigned audio_buffer_ms_override;
 };
 
 extern struct frontend_state g_frontend;

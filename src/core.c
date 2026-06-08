@@ -1040,6 +1040,115 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         return true;
     }
 
+    case RETRO_ENVIRONMENT_GET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_SUPPORT
+         & ~RETRO_ENVIRONMENT_EXPERIMENTAL: {
+        /* Cores poll this to discover which negotiation interface versions
+         * the frontend understands. We currently support the Vulkan
+         * negotiation interface (handled in video_negotiate_hw_context),
+         * which is the only enum value defined upstream. Return the highest
+         * interface_version the frontend recognises; other API types get 0. */
+        if (!require_data(cmd, data))
+            return false;
+        struct retro_hw_render_context_negotiation_interface *iface =
+            (struct retro_hw_render_context_negotiation_interface *)data;
+        if (iface->interface_type ==
+            RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN) {
+            iface->interface_version = 2;
+        } else {
+            iface->interface_version = 0;
+        }
+        return true;
+    }
+
+    case RETRO_ENVIRONMENT_GET_THROTTLE_STATE & ~RETRO_ENVIRONMENT_EXPERIMENTAL: {
+        if (!require_data(cmd, data))
+            return false;
+        struct retro_throttle_state *ts = (struct retro_throttle_state *)data;
+        ts->mode = RETRO_THROTTLE_NONE;
+        ts->rate = (g_av_info.timing.fps > 0.0)
+                   ? (float)g_av_info.timing.fps : 0.0f;
+        return true;
+    }
+
+    case RETRO_ENVIRONMENT_GET_SAVESTATE_CONTEXT & ~RETRO_ENVIRONMENT_EXPERIMENTAL:
+        if (!require_data(cmd, data))
+            return false;
+        *(int *)data = RETRO_SAVESTATE_CONTEXT_NORMAL;
+        return true;
+
+    case RETRO_ENVIRONMENT_GET_JIT_CAPABLE:
+        if (!require_data(cmd, data))
+            return false;
+        /* All three desktop targets (Linux/macOS/Windows) allow JIT. The
+         * libretro contract is "false only on locked-down platforms like
+         * iOS / non-jailbroken consoles", which we never run on. */
+        *(bool *)data = true;
+        return true;
+
+    case RETRO_ENVIRONMENT_GET_MESSAGE_INTERFACE_VERSION:
+        if (!require_data(cmd, data))
+            return false;
+        *(unsigned *)data = 1;
+        return true;
+
+    case RETRO_ENVIRONMENT_SET_MESSAGE_EXT: {
+        if (!require_data(cmd, data))
+            return false;
+        const struct retro_message_ext *msg =
+            (const struct retro_message_ext *)data;
+        if (!msg->msg)
+            return false;
+        /* Route via the logger. TARGET_LOG uses the message's own level;
+         * TARGET_OSD / TARGET_ALL still go to the log since we have no GUI,
+         * but at INFO (so they remain visible without spamming DEBUG). */
+        enum log_level lvl;
+        if (msg->target == RETRO_MESSAGE_TARGET_LOG) {
+            switch (msg->level) {
+            case RETRO_LOG_DEBUG: lvl = LOG_LEVEL_DEBUG; break;
+            case RETRO_LOG_INFO:  lvl = LOG_LEVEL_INFO;  break;
+            case RETRO_LOG_WARN:  lvl = LOG_LEVEL_WARN;  break;
+            case RETRO_LOG_ERROR: lvl = LOG_LEVEL_ERROR; break;
+            default:              lvl = LOG_LEVEL_INFO;  break;
+            }
+        } else {
+            lvl = LOG_LEVEL_INFO;
+        }
+        log_emit(lvl, "CORE", NULL, 0, "%s", msg->msg);
+        return true;
+    }
+
+    case RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS: {
+        /* Note: SET_HW_SHARED_CONTEXT is (44 | EXPERIMENTAL), which collapses
+         * to the same case-value after we strip the experimental flag. The
+         * two are disambiguated via the raw command. SHARED_CONTEXT is
+         * data-less, while SERIALIZATION_QUIRKS expects a uint64_t*. */
+        if (raw_cmd == RETRO_ENVIRONMENT_SET_HW_SHARED_CONTEXT) {
+            g_frontend.video.hw_shared_context_requested = true;
+            LOG_INFO("Core requested shared HW context "
+                     "(honored at next GL init)");
+            return true;
+        }
+        if (!require_data(cmd, data))
+            return false;
+        uint64_t *quirks = (uint64_t *)data;
+        /* The frontend does not require the core to drop any quirks, so we
+         * leave whatever the core wrote in place. Log the declared bits so
+         * savestate misbehavior is easier to attribute. */
+        LOG_INFO("Core serialization quirks: 0x%llx",
+                 (unsigned long long)*quirks);
+        return true;
+    }
+
+    case RETRO_ENVIRONMENT_SET_SUPPORT_ACHIEVEMENTS
+         & ~RETRO_ENVIRONMENT_EXPERIMENTAL: {
+        if (!require_data(cmd, data))
+            return false;
+        g_frontend.core_supports_achievements = *(const bool *)data;
+        LOG_INFO("Core declares achievement support: %s",
+                 g_frontend.core_supports_achievements ? "yes" : "no");
+        return true;
+    }
+
     default:
         LOG_DEBUG("Unhandled cmd: %u (0x%x, raw 0x%x)", cmd, cmd, raw_cmd);
         return false;

@@ -101,6 +101,12 @@ cmake .. -DPURERETRO_ENABLE_VULKAN=OFF
 | `--disk-index <N>` | 0–255 | Initial disc index for multi-disc content. |
 | `--lang <code>` | locale code | Language reported via `GET_LANGUAGE`. 30+ codes mapped (`en`, `ja`, `zh_cn`, `de`, ...). |
 | `--username <name>` | string | Player name reported via `GET_USERNAME`. |
+| `--core-assets-dir <path>` | dir path | Directory reported via `GET_CORE_ASSETS_DIRECTORY`. |
+| `--playlist-dir <path>` | dir path | Directory reported via `GET_PLAYLIST_DIRECTORY`. |
+| `--file-browser-dir <path>` | dir path | Directory reported via `GET_FILE_BROWSER_START_DIRECTORY`. |
+| `--audio-rate <Hz>` | 4000–384000 | Override audio sample rate (default: core's reported rate). |
+| `--audio-buffer-ms <ms>` | 1–5000 | Override minimum audio buffer latency (default: 64 ms). |
+| `--log-level <lvl>` | `debug`/`info`/`warn`/`error` | Log threshold (also `PURERETRO_LOG` env var). Default `info`. |
 
 ### Default Keyboard Mapping
 
