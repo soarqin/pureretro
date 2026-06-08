@@ -6,12 +6,30 @@
  * is requested.
  */
 
+#ifndef _WIN32
+#  ifndef _POSIX_C_SOURCE
+#    define _POSIX_C_SOURCE 200809L
+#  endif
+#  ifndef _FILE_OFFSET_BITS
+#    define _FILE_OFFSET_BITS 64
+#  endif
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef _WIN32
+#  define fseeko _fseeki64
+#  define ftello _ftelli64
+   typedef long long off_t;
+#else
+#  include <sys/types.h>
+#endif
+
 #include "vfs.h"
 
-static const char *vfs_get_path(struct retro_vfs_file_handle *stream)
+static const char *RETRO_CALLCONV vfs_get_path(struct retro_vfs_file_handle *stream)
 {
     struct vfs_file_handle *h = (struct vfs_file_handle *)stream;
     if (!h)
@@ -19,9 +37,9 @@ static const char *vfs_get_path(struct retro_vfs_file_handle *stream)
     return h->path;
 }
 
-static struct retro_vfs_file_handle *vfs_open(const char *path,
-                                              unsigned mode,
-                                              unsigned hints)
+static struct retro_vfs_file_handle *RETRO_CALLCONV vfs_open(const char *path,
+                                                             unsigned mode,
+                                                             unsigned hints)
 {
     (void)hints;
     if (!path)
@@ -57,7 +75,7 @@ static struct retro_vfs_file_handle *vfs_open(const char *path,
     return (struct retro_vfs_file_handle *)h;
 }
 
-static int vfs_close(struct retro_vfs_file_handle *stream)
+static int RETRO_CALLCONV vfs_close(struct retro_vfs_file_handle *stream)
 {
     struct vfs_file_handle *h = (struct vfs_file_handle *)stream;
     if (!h)
@@ -68,31 +86,34 @@ static int vfs_close(struct retro_vfs_file_handle *stream)
     return rc;
 }
 
-static int64_t vfs_size(struct retro_vfs_file_handle *stream)
+/* vfs_size: M-9 fix — restore failure now propagates as -1 */
+static int64_t RETRO_CALLCONV vfs_size(struct retro_vfs_file_handle *stream)
 {
     struct vfs_file_handle *h = (struct vfs_file_handle *)stream;
     if (!h)
         return -1;
-    long pos = ftell(h->fp);
+    int64_t pos = ftello(h->fp);
     if (pos < 0)
         return -1;
-    if (fseek(h->fp, 0, SEEK_END) != 0)
+    if (fseeko(h->fp, 0, SEEK_END) != 0)
         return -1;
-    long end = ftell(h->fp);
-    fseek(h->fp, pos, SEEK_SET);
+    int64_t end = ftello(h->fp);
+    if (fseeko(h->fp, (off_t)pos, SEEK_SET) != 0)
+        return -1;
     return end;
 }
 
-static int64_t vfs_tell(struct retro_vfs_file_handle *stream)
+static int64_t RETRO_CALLCONV vfs_tell(struct retro_vfs_file_handle *stream)
 {
     struct vfs_file_handle *h = (struct vfs_file_handle *)stream;
     if (!h)
         return -1;
-    return ftell(h->fp);
+    return ftello(h->fp);
 }
 
-static int64_t vfs_seek(struct retro_vfs_file_handle *stream,
-                        int64_t offset, int whence)
+/* vfs_seek: C-3 fix — return new absolute offset */
+static int64_t RETRO_CALLCONV vfs_seek(struct retro_vfs_file_handle *stream,
+                                       int64_t offset, int whence)
 {
     struct vfs_file_handle *h = (struct vfs_file_handle *)stream;
     if (!h)
@@ -102,28 +123,42 @@ static int64_t vfs_seek(struct retro_vfs_file_handle *stream,
         std_whence = SEEK_CUR;
     else if (whence == RETRO_VFS_SEEK_POSITION_END)
         std_whence = SEEK_END;
-    return fseek(h->fp, (long)offset, std_whence);
+    if (fseeko(h->fp, (off_t)offset, std_whence) != 0)
+        return -1;
+    return ftello(h->fp);
 }
 
-static int64_t vfs_read(struct retro_vfs_file_handle *stream,
-                        void *s, uint64_t len)
+/* vfs_read: C-4 fix — distinguish EOF from error via ferror */
+static int64_t RETRO_CALLCONV vfs_read(struct retro_vfs_file_handle *stream,
+                                       void *s, uint64_t len)
 {
     struct vfs_file_handle *h = (struct vfs_file_handle *)stream;
     if (!h || !s)
         return -1;
-    return (int64_t)fread(s, 1, (size_t)len, h->fp);
+    size_t n = fread(s, 1, (size_t)len, h->fp);
+    if (n < (size_t)len && ferror(h->fp)) {
+        clearerr(h->fp);
+        return -1;
+    }
+    return (int64_t)n;
 }
 
-static int64_t vfs_write(struct retro_vfs_file_handle *stream,
-                         const void *s, uint64_t len)
+/* vfs_write: C-4 fix — distinguish short-write from error */
+static int64_t RETRO_CALLCONV vfs_write(struct retro_vfs_file_handle *stream,
+                                        const void *s, uint64_t len)
 {
     struct vfs_file_handle *h = (struct vfs_file_handle *)stream;
     if (!h || !s)
         return -1;
-    return (int64_t)fwrite(s, 1, (size_t)len, h->fp);
+    size_t n = fwrite(s, 1, (size_t)len, h->fp);
+    if (n < (size_t)len && ferror(h->fp)) {
+        clearerr(h->fp);
+        return -1;
+    }
+    return (int64_t)n;
 }
 
-static int vfs_flush(struct retro_vfs_file_handle *stream)
+static int RETRO_CALLCONV vfs_flush(struct retro_vfs_file_handle *stream)
 {
     struct vfs_file_handle *h = (struct vfs_file_handle *)stream;
     if (!h)
@@ -131,14 +166,14 @@ static int vfs_flush(struct retro_vfs_file_handle *stream)
     return fflush(h->fp);
 }
 
-static int vfs_remove(const char *path)
+static int RETRO_CALLCONV vfs_remove(const char *path)
 {
     if (!path)
         return -1;
     return remove(path);
 }
 
-static int vfs_rename(const char *old_path, const char *new_path)
+static int RETRO_CALLCONV vfs_rename(const char *old_path, const char *new_path)
 {
     if (!old_path || !new_path)
         return -1;
