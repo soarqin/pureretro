@@ -40,6 +40,7 @@ static void print_usage(const char *argv0)
     fprintf(stderr, "  --lang <code>       Language reported to the core (e.g. en, ja, fr, de,\n");
     fprintf(stderr, "                      es, it, pt_br, pt_pt, ru, ko, zh_cn, zh_tw)\n");
     fprintf(stderr, "  --username <name>   Player name reported via GET_USERNAME\n");
+    fprintf(stderr, "  --subsystem <ident> Load content via subsystem (e.g. sgb, bsx)\n");
     fprintf(stderr, "  --core-assets-dir <path>     Directory reported via GET_CORE_ASSETS_DIRECTORY\n");
     fprintf(stderr, "  --playlist-dir <path>        Directory reported via GET_PLAYLIST_DIRECTORY\n");
     fprintf(stderr, "  --file-browser-dir <path>    Directory reported via GET_FILE_BROWSER_START_DIRECTORY\n");
@@ -240,6 +241,14 @@ static bool parse_args(int argc, char *argv[])
                 print_usage(argv[0]);
                 return false;
             }
+        } else if (strcmp(argv[i], "--subsystem") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--subsystem requires a subsystem identifier\n");
+                print_usage(argv[0]);
+                return false;
+            }
+            ++i;
+            g_frontend.subsystem_ident = argv[i];
         } else if (strcmp(argv[i], "--username") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "--username requires a name\n");
@@ -472,7 +481,9 @@ static void run_loop(void)
         audio_notify_buffer_status();
         core_run();
 
-        if (target_frame_ns > 0) {
+        /* Skip the frame-pacing delay when the core has requested
+         * fast-forward via SET_FASTFORWARDING_OVERRIDE. */
+        if (target_frame_ns > 0 && !g_frontend.fast_forward_active) {
             Uint64 elapsed = SDL_GetTicksNS() - frame_start;
             if (elapsed < target_frame_ns)
                 SDL_DelayNS(target_frame_ns - elapsed);

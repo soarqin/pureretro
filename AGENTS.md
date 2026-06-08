@@ -161,6 +161,12 @@ The `core.c` module implements the frontend's `retro_environment_t`. The table b
 | `SET_SERIALIZATION_QUIRKS` | ✅ Implemented | Logs declared quirks; frontend requires none. |
 | `SET_SUPPORT_ACHIEVEMENTS` | ✅ Implemented | Stored in `g_frontend.core_supports_achievements` + INFO log. |
 | `SET_HW_SHARED_CONTEXT` | ✅ Implemented | Sets `g_frontend.video.hw_shared_context_requested`; honored at next GL context creation via `SDL_GL_SHARE_WITH_CURRENT_CONTEXT`. |
+| `SET_PROC_ADDRESS_CALLBACK` | ✅ Implemented | Stores `get_proc_address` for optional future use (frontend currently defines no core extension symbols). |
+| `SET_SUBSYSTEM_INFO` | ✅ Implemented | Deep-copies the subsystem array (ident/desc/ROMs/memory). With `--subsystem <ident>` set, `core_init` calls `retro_load_game_special`. |
+| `SET_MEMORY_MAPS` | ✅ Implemented | Deep-copies the descriptor array + addrspace strings. Future use for achievements/rewind. |
+| `SET_FASTFORWARDING_OVERRIDE` | ✅ Implemented | Toggles `g_frontend.fast_forward_active`; run_loop skips the frame-pacing delay and `GET_FASTFORWARDING`/`GET_THROTTLE_STATE`/`GET_AUDIO_VIDEO_ENABLE` reflect the state. |
+| `SET_CONTENT_INFO_OVERRIDE` | ✅ Implemented | Deep-copies the override array. Frontend keeps ROM data alive until shutdown regardless of `persistent_data`. |
+| `GET_GAME_INFO_EXT` | ✅ Implemented | Returns the populated extended info; valid inside `retro_load_game`/`retro_load_game_special`. |
 | `SET_ROTATION` | 📝 Stub | Returns false. |
 | `SET_PERFORMANCE_LEVEL` | ✅ Implemented | Logs the core's hint at INFO level. |
 | `SET_INPUT_DESCRIPTORS` | 📝 Stub | Returns false. |
@@ -189,6 +195,7 @@ The `core.c` module implements the frontend's `retro_environment_t`. The table b
 | `--disk-index <N>` | 0–255 | Initial disc index for multi-disc content. |
 | `--lang <code>` | locale code | Language for `GET_LANGUAGE` (30+ codes supported). |
 | `--username <name>` | string | Player name for `GET_USERNAME`. |
+| `--subsystem <ident>` | string | Load content through `retro_load_game_special` using the subsystem with the matching `ident`. |
 | `--core-assets-dir <path>` | dir path | Returned by `GET_CORE_ASSETS_DIRECTORY`. |
 | `--playlist-dir <path>` | dir path | Returned by `GET_PLAYLIST_DIRECTORY`. |
 | `--file-browser-dir <path>` | dir path | Returned by `GET_FILE_BROWSER_START_DIRECTORY`. |

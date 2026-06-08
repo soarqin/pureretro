@@ -101,6 +101,7 @@ cmake .. -DPURERETRO_ENABLE_VULKAN=OFF
 | `--disk-index <N>` | 0–255 | Initial disc index for multi-disc content. |
 | `--lang <code>` | locale code | Language reported via `GET_LANGUAGE`. 30+ codes mapped (`en`, `ja`, `zh_cn`, `de`, ...). |
 | `--username <name>` | string | Player name reported via `GET_USERNAME`. |
+| `--subsystem <ident>` | string | Load content through `retro_load_game_special` (e.g. `sgb`, `bsx`). |
 | `--core-assets-dir <path>` | dir path | Directory reported via `GET_CORE_ASSETS_DIRECTORY`. |
 | `--playlist-dir <path>` | dir path | Directory reported via `GET_PLAYLIST_DIRECTORY`. |
 | `--file-browser-dir <path>` | dir path | Directory reported via `GET_FILE_BROWSER_START_DIRECTORY`. |

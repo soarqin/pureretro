@@ -41,6 +41,137 @@ static void controller_ports_clear(void)
     g_frontend.controller_port_count = 0;
 }
 
+static void subsystem_info_clear(void)
+{
+    for (unsigned i = 0; i < g_frontend.subsystem_info_count; ++i) {
+        struct subsystem_storage *ss = &g_frontend.subsystem_info[i];
+        free(ss->desc);
+        free(ss->ident);
+        for (unsigned j = 0; j < ss->num_roms; ++j) {
+            struct subsystem_rom_storage *rs = &ss->roms[j];
+            free(rs->desc);
+            free(rs->valid_extensions);
+            for (unsigned k = 0; k < rs->num_memory; ++k)
+                free(rs->memory_extensions[k]);
+            free(rs->memory_extensions);
+            free(rs->memory);
+        }
+        free(ss->roms);
+    }
+    free(g_frontend.subsystem_info);
+    g_frontend.subsystem_info = NULL;
+    g_frontend.subsystem_info_count = 0;
+}
+
+static void memory_maps_clear(void)
+{
+    for (unsigned i = 0; i < g_frontend.memory_descriptor_count; ++i)
+        free(g_frontend.memory_addrspace_strings[i]);
+    free(g_frontend.memory_addrspace_strings);
+    free(g_frontend.memory_descriptors);
+    g_frontend.memory_descriptors = NULL;
+    g_frontend.memory_addrspace_strings = NULL;
+    g_frontend.memory_descriptor_count = 0;
+}
+
+static void content_overrides_clear(void)
+{
+    for (unsigned i = 0; i < g_frontend.content_override_count; ++i)
+        free(g_frontend.content_overrides[i].extensions);
+    free(g_frontend.content_overrides);
+    g_frontend.content_overrides = NULL;
+    g_frontend.content_override_count = 0;
+}
+
+static void game_info_ext_clear(void)
+{
+    free(g_frontend.game_info_ext_dir);
+    free(g_frontend.game_info_ext_name);
+    free(g_frontend.game_info_ext_ext);
+    g_frontend.game_info_ext_dir = NULL;
+    g_frontend.game_info_ext_name = NULL;
+    g_frontend.game_info_ext_ext = NULL;
+    memset(&g_frontend.game_info_ext, 0, sizeof(g_frontend.game_info_ext));
+}
+
+static bool game_info_ext_populate(const char *content_path)
+{
+    memset(&g_frontend.game_info_ext, 0, sizeof(g_frontend.game_info_ext));
+
+    g_frontend.game_info_ext.full_path = content_path;
+    g_frontend.game_info_ext.data = g_frontend.rom_data;
+    g_frontend.game_info_ext.size = g_frontend.rom_size;
+    g_frontend.game_info_ext.persistent_data = true;
+
+    if (!content_path)
+    {
+        g_frontend.game_info_ext.file_in_archive = false;
+        return true;
+    }
+
+    /* Find last '/' for dir, then last '.' for ext */
+    const char *last_slash = strrchr(content_path, '/');
+#ifdef _WIN32
+    {
+        const char *bs = strrchr(content_path, '\\');
+        if (!last_slash || bs > last_slash)
+            last_slash = bs;
+    }
+#endif
+    const char *basename = last_slash ? last_slash + 1 : content_path;
+
+    size_t base_dir_len = last_slash
+        ? (size_t)(last_slash - content_path)
+        : 0;
+    if (base_dir_len > 0) {
+        g_frontend.game_info_ext_dir = malloc(base_dir_len + 1);
+        if (g_frontend.game_info_ext_dir) {
+            memcpy(g_frontend.game_info_ext_dir, content_path, base_dir_len);
+            g_frontend.game_info_ext_dir[base_dir_len] = '\0';
+            g_frontend.game_info_ext.dir = g_frontend.game_info_ext_dir;
+        }
+    }
+
+    size_t basename_len = strlen(basename);
+    const char *dot = NULL;
+    for (const char *p = basename + basename_len; p > basename; --p) {
+        if (*p == '.') {
+            dot = p;
+            break;
+        }
+    }
+
+    if (dot) {
+        size_t name_len = (size_t)(dot - basename);
+        g_frontend.game_info_ext_name = malloc(name_len + 1);
+        if (g_frontend.game_info_ext_name) {
+            memcpy(g_frontend.game_info_ext_name, basename, name_len);
+            g_frontend.game_info_ext_name[name_len] = '\0';
+            g_frontend.game_info_ext.name = g_frontend.game_info_ext_name;
+        }
+
+        size_t ext_len = basename_len - name_len - 1;
+        g_frontend.game_info_ext_ext = malloc(ext_len + 1);
+        if (g_frontend.game_info_ext_ext) {
+            for (size_t i = 0; i < ext_len; ++i)
+                g_frontend.game_info_ext_ext[i] =
+                    (basename[name_len + 1 + i] >= 'A' &&
+                     basename[name_len + 1 + i] <= 'Z')
+                    ? (char)(basename[name_len + 1 + i] + 32)
+                    : basename[name_len + 1 + i];
+            g_frontend.game_info_ext_ext[ext_len] = '\0';
+            g_frontend.game_info_ext.ext = g_frontend.game_info_ext_ext;
+        }
+    } else {
+        g_frontend.game_info_ext_name = SDL_strdup(basename);
+        if (g_frontend.game_info_ext_name)
+            g_frontend.game_info_ext.name = g_frontend.game_info_ext_name;
+    }
+
+    g_frontend.game_info_ext.file_in_archive = false;
+    return true;
+}
+
 /* Apply --disk-index after the core has registered a disk control interface.
  * The libretro contract permits set_image_index() at any time after init. */
 static void disk_control_apply_initial_index(void)
@@ -187,6 +318,17 @@ bool core_load(const char *path)
 
 #undef LOAD_SYM
 
+    /* retro_load_game_special is part of the libretro ABI but only used
+     * when --subsystem is set. Treat it as optional so we don't refuse to
+     * load older or trimmed cores that may not export it. */
+    {
+        SDL_FunctionPointer fp = SDL_LoadFunction(g_core_handle,
+                                                  "retro_load_game_special");
+        if (fp)
+            memcpy(&g_core.retro_load_game_special, &fp,
+                   sizeof(g_core.retro_load_game_special));
+    }
+
     return true;
 }
 
@@ -220,6 +362,10 @@ void core_unload(void)
     variable_table_clear(&g_frontend.cli_overrides);
 
     controller_ports_clear();
+    subsystem_info_clear();
+    memory_maps_clear();
+    content_overrides_clear();
+    game_info_ext_clear();
     memset(&g_frontend.disk_control, 0, sizeof(g_frontend.disk_control));
     g_frontend.has_disk_control = false;
 
@@ -262,9 +408,53 @@ bool core_init(const char *content_path)
         game.data = g_frontend.rom_data;
         game.size = g_frontend.rom_size;
 
-        LOG_INFO("Calling retro_load_game...");
-        if (!g_core.retro_load_game(&game)) {
-            LOG_ERROR("retro_load_game failed (core rejected the content)");
+        /* Populate extended game info for any GET_GAME_INFO_EXT calls
+         * the core may make during retro_load_game. */
+        game_info_ext_populate(content_path);
+
+        bool loaded;
+        if (g_frontend.subsystem_ident) {
+            /* Look up the requested subsystem in the deep-copied registry. */
+            const struct subsystem_storage *match = NULL;
+            for (unsigned i = 0; i < g_frontend.subsystem_info_count; ++i) {
+                if (g_frontend.subsystem_info[i].ident &&
+                    strcmp(g_frontend.subsystem_info[i].ident,
+                           g_frontend.subsystem_ident) == 0) {
+                    match = &g_frontend.subsystem_info[i];
+                    break;
+                }
+            }
+            if (!match) {
+                LOG_ERROR("--subsystem '%s' is not declared by the core",
+                          g_frontend.subsystem_ident);
+                free(g_frontend.rom_data);
+                g_frontend.rom_data = NULL;
+                g_frontend.rom_size = 0;
+                return false;
+            }
+            if (!g_core.retro_load_game_special) {
+                LOG_ERROR("Core does not export retro_load_game_special; "
+                          "cannot use --subsystem");
+                free(g_frontend.rom_data);
+                g_frontend.rom_data = NULL;
+                g_frontend.rom_size = 0;
+                return false;
+            }
+            if (match->num_roms != 1) {
+                LOG_WARN("--subsystem '%s' expects %u ROMs but only 1 content "
+                         "path was provided; behaviour may be undefined",
+                         g_frontend.subsystem_ident, match->num_roms);
+            }
+            LOG_INFO("Calling retro_load_game_special(id=%u, '%s')...",
+                     match->id, g_frontend.subsystem_ident);
+            loaded = g_core.retro_load_game_special(match->id, &game, 1);
+        } else {
+            LOG_INFO("Calling retro_load_game...");
+            loaded = g_core.retro_load_game(&game);
+        }
+
+        if (!loaded) {
+            LOG_ERROR("Game load failed (core rejected the content)");
             /* Release the ROM buffer immediately so a caller that bails out
              * without invoking core_unload does not leak it. core_unload()
              * also handles this case, so a double-free is avoided by
@@ -274,7 +464,7 @@ bool core_init(const char *content_path)
             g_frontend.rom_size = 0;
             return false;
         }
-        LOG_INFO("retro_load_game succeeded");
+        LOG_INFO("Game load succeeded");
     } else {
         LOG_INFO("Calling retro_load_game(NULL)...");
         if (!g_core.retro_load_game(NULL)) {
@@ -836,9 +1026,11 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         if (!require_data(cmd, data))
             return false;
         /* bit0: audio enabled, bit1: video enabled, bit2: fast-forwarding,
-         * bit3: hard disable audio. We never hard-disable, never report
-         * fast-forwarding (not implemented yet), and video is always on. */
-        *(int *)data = (g_frontend.no_audio ? 0 : 1) | (1 << 1);
+         * bit3: hard disable audio. We never hard-disable; video is always
+         * on; fast-forward reflects the current frontend state. */
+        *(int *)data = (g_frontend.no_audio ? 0 : 1)
+                       | (1 << 1)
+                       | (g_frontend.fast_forward_active ? (1 << 2) : 0);
         return true;
 
     case RETRO_ENVIRONMENT_GET_INPUT_MAX_USERS:
@@ -880,7 +1072,7 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
     case RETRO_ENVIRONMENT_GET_FASTFORWARDING:
         if (!require_data(cmd, data))
             return false;
-        *(bool *)data = false;
+        *(bool *)data = g_frontend.fast_forward_active;
         return true;
 
     case RETRO_ENVIRONMENT_GET_TARGET_REFRESH_RATE: {
@@ -1064,9 +1256,14 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         if (!require_data(cmd, data))
             return false;
         struct retro_throttle_state *ts = (struct retro_throttle_state *)data;
-        ts->mode = RETRO_THROTTLE_NONE;
-        ts->rate = (g_av_info.timing.fps > 0.0)
-                   ? (float)g_av_info.timing.fps : 0.0f;
+        if (g_frontend.fast_forward_active) {
+            ts->mode = RETRO_THROTTLE_FAST_FORWARD;
+            ts->rate = 0.0f; /* unlimited */
+        } else {
+            ts->mode = RETRO_THROTTLE_NONE;
+            ts->rate = (g_av_info.timing.fps > 0.0)
+                       ? (float)g_av_info.timing.fps : 0.0f;
+        }
         return true;
     }
 
@@ -1146,6 +1343,216 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         g_frontend.core_supports_achievements = *(const bool *)data;
         LOG_INFO("Core declares achievement support: %s",
                  g_frontend.core_supports_achievements ? "yes" : "no");
+        return true;
+    }
+
+    case RETRO_ENVIRONMENT_SET_PROC_ADDRESS_CALLBACK: {
+        if (!require_data(cmd, data))
+            return false;
+        const struct retro_get_proc_address_interface *iface =
+            (const struct retro_get_proc_address_interface *)data;
+        g_frontend.get_proc_address = iface->get_proc_address;
+        LOG_INFO("Core registered get_proc_address interface (%p)",
+                 (void *)(uintptr_t)iface->get_proc_address);
+        return true;
+    }
+
+    case RETRO_ENVIRONMENT_SET_SUBSYSTEM_INFO: {
+        if (!require_data(cmd, data))
+            return false;
+        const struct retro_subsystem_info *list =
+            (const struct retro_subsystem_info *)data;
+
+        subsystem_info_clear();
+
+        /* Count entries first (terminated by a zeroed-out struct). */
+        unsigned count = 0;
+        for (const struct retro_subsystem_info *p = list;
+             p && (p->desc || p->ident || p->roms || p->num_roms);
+             ++p)
+            count++;
+
+        if (count == 0) {
+            LOG_INFO("Core registered 0 subsystems");
+            return true;
+        }
+
+        g_frontend.subsystem_info = calloc(count,
+            sizeof(*g_frontend.subsystem_info));
+        if (!g_frontend.subsystem_info)
+            return false;
+        g_frontend.subsystem_info_count = count;
+
+        for (unsigned i = 0; i < count; ++i) {
+            const struct retro_subsystem_info *src = &list[i];
+            struct subsystem_storage *dst = &g_frontend.subsystem_info[i];
+            dst->desc  = src->desc  ? SDL_strdup(src->desc)  : NULL;
+            dst->ident = src->ident ? SDL_strdup(src->ident) : NULL;
+            dst->id    = src->id;
+            dst->num_roms = src->num_roms;
+            if (src->num_roms == 0)
+                continue;
+
+            dst->roms = calloc(src->num_roms, sizeof(*dst->roms));
+            if (!dst->roms) {
+                subsystem_info_clear();
+                return false;
+            }
+
+            for (unsigned j = 0; j < src->num_roms; ++j) {
+                const struct retro_subsystem_rom_info *srom = &src->roms[j];
+                struct subsystem_rom_storage *drom = &dst->roms[j];
+                drom->desc             = srom->desc
+                                         ? SDL_strdup(srom->desc) : NULL;
+                drom->valid_extensions = srom->valid_extensions
+                                         ? SDL_strdup(srom->valid_extensions)
+                                         : NULL;
+                drom->need_fullpath    = srom->need_fullpath;
+                drom->block_extract    = srom->block_extract;
+                drom->required         = srom->required;
+                drom->num_memory       = srom->num_memory;
+                if (srom->num_memory == 0)
+                    continue;
+
+                drom->memory = calloc(srom->num_memory, sizeof(*drom->memory));
+                drom->memory_extensions =
+                    calloc(srom->num_memory, sizeof(*drom->memory_extensions));
+                if (!drom->memory || !drom->memory_extensions) {
+                    subsystem_info_clear();
+                    return false;
+                }
+                for (unsigned k = 0; k < srom->num_memory; ++k) {
+                    drom->memory_extensions[k] = srom->memory[k].extension
+                        ? SDL_strdup(srom->memory[k].extension) : NULL;
+                    drom->memory[k].extension = drom->memory_extensions[k];
+                    drom->memory[k].type      = srom->memory[k].type;
+                }
+            }
+        }
+
+        LOG_INFO("Core registered %u subsystem(s):", count);
+        for (unsigned i = 0; i < count; ++i) {
+            const struct subsystem_storage *ss = &g_frontend.subsystem_info[i];
+            LOG_INFO("  [%u] id=%u ident=%s desc=%s roms=%u",
+                     i, ss->id,
+                     ss->ident ? ss->ident : "(null)",
+                     ss->desc  ? ss->desc  : "(null)",
+                     ss->num_roms);
+        }
+        return true;
+    }
+
+    case RETRO_ENVIRONMENT_SET_MEMORY_MAPS
+         & ~RETRO_ENVIRONMENT_EXPERIMENTAL: {
+        if (!require_data(cmd, data))
+            return false;
+        const struct retro_memory_map *map = (const struct retro_memory_map *)data;
+
+        memory_maps_clear();
+
+        if (map->num_descriptors == 0 || !map->descriptors) {
+            LOG_INFO("Core registered 0 memory descriptors");
+            return true;
+        }
+
+        g_frontend.memory_descriptors = calloc(map->num_descriptors,
+            sizeof(*g_frontend.memory_descriptors));
+        g_frontend.memory_addrspace_strings = calloc(map->num_descriptors,
+            sizeof(*g_frontend.memory_addrspace_strings));
+        if (!g_frontend.memory_descriptors ||
+            !g_frontend.memory_addrspace_strings) {
+            memory_maps_clear();
+            return false;
+        }
+
+        for (unsigned i = 0; i < map->num_descriptors; ++i) {
+            g_frontend.memory_descriptors[i] = map->descriptors[i];
+            if (map->descriptors[i].addrspace) {
+                g_frontend.memory_addrspace_strings[i] =
+                    SDL_strdup(map->descriptors[i].addrspace);
+                g_frontend.memory_descriptors[i].addrspace =
+                    g_frontend.memory_addrspace_strings[i];
+            } else {
+                g_frontend.memory_descriptors[i].addrspace = NULL;
+            }
+        }
+        g_frontend.memory_descriptor_count = map->num_descriptors;
+
+        LOG_INFO("Core registered %u memory descriptor(s)",
+                 map->num_descriptors);
+        return true;
+    }
+
+    case RETRO_ENVIRONMENT_SET_FASTFORWARDING_OVERRIDE: {
+        /* NULL data is a support probe per the libretro contract. */
+        if (!data) {
+            LOG_DEBUG("Core probed SET_FASTFORWARDING_OVERRIDE support");
+            return true;
+        }
+        const struct retro_fastforwarding_override *ov =
+            (const struct retro_fastforwarding_override *)data;
+        g_frontend.ff_override_active = ov->fastforward;
+        g_frontend.ff_inhibit_toggle  = ov->inhibit_toggle;
+        g_frontend.fast_forward_active = ov->fastforward;
+        LOG_INFO("Core fast-forward override: active=%s ratio=%.2f "
+                 "notification=%s inhibit_toggle=%s",
+                 ov->fastforward ? "yes" : "no",
+                 ov->ratio,
+                 ov->notification ? "yes" : "no",
+                 ov->inhibit_toggle ? "yes" : "no");
+        return true;
+    }
+
+    case RETRO_ENVIRONMENT_SET_CONTENT_INFO_OVERRIDE: {
+        content_overrides_clear();
+        /* NULL data is a support probe per the libretro contract. */
+        if (!data) {
+            LOG_DEBUG("Core probed SET_CONTENT_INFO_OVERRIDE support");
+            return true;
+        }
+        const struct retro_system_content_info_override *list =
+            (const struct retro_system_content_info_override *)data;
+
+        unsigned count = 0;
+        for (const struct retro_system_content_info_override *p = list;
+             p && p->extensions; ++p)
+            count++;
+
+        if (count == 0)
+            return true;
+
+        g_frontend.content_overrides = calloc(count,
+            sizeof(*g_frontend.content_overrides));
+        if (!g_frontend.content_overrides)
+            return false;
+        g_frontend.content_override_count = count;
+
+        for (unsigned i = 0; i < count; ++i) {
+            g_frontend.content_overrides[i].extensions =
+                SDL_strdup(list[i].extensions);
+            g_frontend.content_overrides[i].need_fullpath =
+                list[i].need_fullpath;
+            g_frontend.content_overrides[i].persistent_data =
+                list[i].persistent_data;
+        }
+
+        LOG_INFO("Core registered %u content info override(s); frontend keeps "
+                 "ROM data alive until shutdown regardless of persistent_data",
+                 count);
+        return true;
+    }
+
+    case RETRO_ENVIRONMENT_GET_GAME_INFO_EXT: {
+        if (!require_data(cmd, data))
+            return false;
+        /* libretro contract: only valid inside retro_load_game[_special]. */
+        if (!g_frontend.rom_data && !g_frontend.game_info_ext.full_path) {
+            LOG_WARN("GET_GAME_INFO_EXT called outside retro_load_game");
+            return false;
+        }
+        const struct retro_game_info_ext **out =
+            (const struct retro_game_info_ext **)data;
+        *out = &g_frontend.game_info_ext;
         return true;
     }
 

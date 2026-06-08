@@ -32,6 +32,9 @@ struct core_functions
     void (RETRO_CALLCONV *retro_reset)(void);
     void (RETRO_CALLCONV *retro_run)(void);
     bool (RETRO_CALLCONV *retro_load_game)(const struct retro_game_info *game);
+    bool (RETRO_CALLCONV *retro_load_game_special)(unsigned game_type,
+                                                   const struct retro_game_info *info,
+                                                   size_t num_info);
     void (RETRO_CALLCONV *retro_unload_game)(void);
     void (RETRO_CALLCONV *retro_get_region)(void);
     void* (RETRO_CALLCONV *retro_get_memory_data)(unsigned id);

@@ -80,6 +80,39 @@ struct controller_port_info
     unsigned num_types;
 };
 
+/* Deep-copy of a single subsystem's ROM info (SET_SUBSYSTEM_INFO).
+ * Memory descriptors and all strings are owned by the frontend. */
+struct subsystem_rom_storage
+{
+    char *desc;
+    char *valid_extensions;
+    bool need_fullpath;
+    bool block_extract;
+    bool required;
+    struct retro_subsystem_memory_info *memory;
+    unsigned num_memory;
+    /* Backing storage for each memory[i].extension string (parallel array). */
+    char **memory_extensions;
+};
+
+/* Deep-copy of a subsystem descriptor declared by the core. */
+struct subsystem_storage
+{
+    char *desc;
+    char *ident;
+    unsigned id;
+    struct subsystem_rom_storage *roms;
+    unsigned num_roms;
+};
+
+/* Deep-copy of a content-info override entry (SET_CONTENT_INFO_OVERRIDE). */
+struct content_info_override_storage
+{
+    char *extensions;
+    bool need_fullpath;
+    bool persistent_data;
+};
+
 /* Global frontend state */
 struct frontend_state
 {
@@ -179,6 +212,52 @@ struct frontend_state
      * reports AV info. */
     unsigned audio_rate_override;
     unsigned audio_buffer_ms_override;
+
+    /* Core proc address callback (SET_PROC_ADDRESS_CALLBACK).
+     * Stores the function pointer for optional future use; we do not
+     * currently define any core extension symbols. */
+    retro_get_proc_address_t get_proc_address;
+
+    /* Memory map (SET_MEMORY_MAPS).
+     * Deep-copied: descriptors array + addrspace strings are owned by
+     * the frontend. Freed in core_unload. */
+    struct retro_memory_descriptor *memory_descriptors;
+    char **memory_addrspace_strings;
+    unsigned memory_descriptor_count;
+
+    /* Subsystem info (SET_SUBSYSTEM_INFO).
+     * Deep-copied array; all strings and sub-arrays are owned by the
+     * frontend. Freed in core_unload. */
+    struct subsystem_storage *subsystem_info;
+    unsigned subsystem_info_count;
+
+    /* --subsystem <ident> CLI: when set, core_init calls
+     * retro_load_game_special() instead of retro_load_game().
+     * The ident is matched against subsystem_info[].ident. NULL = no
+     * subsystem selected (regular load). */
+    const char *subsystem_ident;
+
+    /* Fast-forward state.
+     * fast_forward_active: frontend is currently skipping frame delays.
+     * ff_override_active: core has an active override request.
+     * ff_inhibit_toggle: core prohibits manual toggle of fast-forward. */
+    bool fast_forward_active;
+    bool ff_override_active;
+    bool ff_inhibit_toggle;
+
+    /* Content info overrides (SET_CONTENT_INFO_OVERRIDE).
+     * Deep-copied array; strings owned by frontend. Freed in core_unload. */
+    struct content_info_override_storage *content_overrides;
+    unsigned content_override_count;
+
+    /* Extended game info (GET_GAME_INFO_EXT).
+     * Populated by core_init before retro_load_game; the struct and its
+     * backing strings (dir/name/ext) remain valid until core_unload.
+     * Only valid inside retro_load_game() or retro_load_game_special(). */
+    struct retro_game_info_ext game_info_ext;
+    char *game_info_ext_dir;
+    char *game_info_ext_name;
+    char *game_info_ext_ext;
 };
 
 extern struct frontend_state g_frontend;
