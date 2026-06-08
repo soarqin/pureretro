@@ -27,11 +27,14 @@ if(NOT _sdl3_resolved)
 endif()
 
 # ---- Unity (for tests) ----
+# EXCLUDE_FROM_ALL keeps libunity.a out of the default `cmake --build` target;
+# it gets built on demand by the test fixture in tests/CMakeLists.txt.
 if(PURERETRO_BUILD_TESTS)
     CPMAddPackage(
         NAME    Unity
         VERSION 2.6.0
         GITHUB_REPOSITORY ThrowTheSwitch/Unity
+        EXCLUDE_FROM_ALL YES
         OPTIONS "UNITY_EXTENSION_FIXTURE OFF" "UNITY_EXTENSION_MEMORY OFF"
     )
 endif()
