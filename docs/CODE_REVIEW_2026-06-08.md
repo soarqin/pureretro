@@ -74,16 +74,16 @@ bit0/bit1 互换。C-1 修了之后此 bug 立即导致核心推断"video 关闭
 ### I-1 `core_init` 失败路径触发未配对的 `retro_deinit`/`retro_unload_game` ✅
 **位置**：`core.c:401-412,449` — 引入 `g_core_initialized`/`g_game_loaded` 守卫。
 
-### I-2 Vulkan 交换链不在 OUT_OF_DATE/SUBOPTIMAL 时重建
+### I-2 Vulkan 交换链不在 OUT_OF_DATE/SUBOPTIMAL 时重建 ✅
 **位置**：`video_vk.c:621-625` — 标记 `swapchain_dirty=true`，下次 present 重建。
 
-### I-3 Vulkan swapchain 重建中途失败留下损坏 context
+### I-3 Vulkan swapchain 重建中途失败留下损坏 context ✅
 **位置**：`video_vk.c:243-250` — 新对象存临时变量，全部成功后再 swap。
 
 ### I-4 GL FBO resize 不通知核心 context_destroy/reset
 **位置**：`video_gl.c:307-319` — resize 时通知核心或原地 reallocate 纹理。
 
-### I-5 Vulkan 不清除 letterbox/pillarbox 区域
+### I-5 Vulkan 不清除 letterbox/pillarbox 区域 ✅
 **位置**：`video_vk.c:654` — blit 前插 `vkCmdClearColorImage`。
 
 ### I-6 ESC/F11 硬编码拦截与 SET_KEYBOARD_CALLBACK 冲突 ✅
