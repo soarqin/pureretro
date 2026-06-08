@@ -21,38 +21,7 @@
 /* Global frontend state */
 struct frontend_state g_frontend;
 
-static void print_usage(const char *argv0)
-{
-    fprintf(stderr, "Usage: %s <core> <content> [options]\n", argv0);
-    fprintf(stderr, "  <core>     Path to the libretro core (e.g., nestopia_libretro.so)\n");
-    fprintf(stderr, "  <content>  Path to the game ROM or content file\n");
-    fprintf(stderr, "Options:\n");
-    fprintf(stderr, "  --fullscreen, -f    Start in fullscreen mode\n");
-    fprintf(stderr, "  --render <api>      Hint preferred renderer: vk, gl, or sw\n");
-    fprintf(stderr, "                      (Core may still choose a different renderer.)\n");
-    fprintf(stderr, "  --scale <N>         Integer window scale (1-16)\n");
-    fprintf(stderr, "  --no-audio          Disable audio output\n");
-    fprintf(stderr, "  --variable <k=v>    Override a core option variable\n");
-    fprintf(stderr, "  --portable          Portable mode: use the current directory as the\n");
-    fprintf(stderr, "                      config base (system files in ./system)\n");
-    fprintf(stderr, "  --system-dir <path> Directory reported via GET_SYSTEM_DIRECTORY\n");
-    fprintf(stderr, "                      (overrides --portable and the default SDL pref path)\n");
-    fprintf(stderr, "  --config <path>     Load key remapping configuration file\n");
-    fprintf(stderr, "  --disk-index <N>    For multi-disc content: initial disk index (0-based)\n");
-    fprintf(stderr, "  --lang <code>       Language reported to the core (e.g. en, ja, fr, de,\n");
-    fprintf(stderr, "                      es, it, pt_br, pt_pt, ru, ko, zh_cn, zh_tw)\n");
-    fprintf(stderr, "  --username <name>   Player name reported via GET_USERNAME\n");
-    fprintf(stderr, "  --subsystem <ident> Load content via subsystem (e.g. sgb, bsx)\n");
-    fprintf(stderr, "  --core-assets-dir <path>     Directory reported via GET_CORE_ASSETS_DIRECTORY\n");
-    fprintf(stderr, "  --playlist-dir <path>        Directory reported via GET_PLAYLIST_DIRECTORY\n");
-    fprintf(stderr, "  --file-browser-dir <path>    Directory reported via GET_FILE_BROWSER_START_DIRECTORY\n");
-    fprintf(stderr, "  --audio-rate <Hz>    Override audio sample rate (default: core's rate)\n");
-    fprintf(stderr, "  --audio-buffer-ms <ms>  Override minimum audio buffer latency (default: %d)\n",
-            FRONTEND_AUDIO_BUFFER_MS);
-    fprintf(stderr, "  --log-level <lvl>   debug, info (default), warn, or error\n");
-    fprintf(stderr, "                      Also settable via PURERETRO_LOG environment variable.\n");
-    fprintf(stderr, "  --savestate <file>  Load a savestate file after core init.\n");
-}
+
 
 static bool parse_lang(const char *arg, enum retro_language *out)
 {
@@ -118,10 +87,268 @@ static bool parse_render(const char *arg, enum video_renderer *out)
     return false;
 }
 
+struct cli_option {
+    const char *long_name;
+    const char *short_name;
+    bool wants_arg;
+    bool (*handler)(const char *arg, struct frontend_state *cfg);
+    const char *help;
+};
+
+static bool cli_fullscreen(const char *arg, struct frontend_state *cfg)
+{
+    (void)arg;
+    cfg->fullscreen = true;
+    return true;
+}
+
+static bool cli_render(const char *arg, struct frontend_state *cfg)
+{
+    if (!parse_render(arg, &cfg->preferred_renderer)) {
+        fprintf(stderr, "Invalid renderer: '%s' (expected vk, gl, or sw)\n", arg);
+        return false;
+    }
+    LOG_INFO("Renderer preference: %s",
+             renderer_name(cfg->preferred_renderer));
+    return true;
+}
+
+static bool cli_scale(const char *arg, struct frontend_state *cfg)
+{
+    char *endptr = NULL;
+    long val = strtol(arg, &endptr, 10);
+    if (*endptr != '\0' || val < 1 || val > 16) {
+        fprintf(stderr, "Invalid scale: '%s' (expected 1-16)\n", arg);
+        return false;
+    }
+    cfg->window_scale = (unsigned)val;
+    return true;
+}
+
+static bool cli_no_audio(const char *arg, struct frontend_state *cfg)
+{
+    (void)arg;
+    cfg->no_audio = true;
+    return true;
+}
+
+static bool cli_variable(const char *arg, struct frontend_state *cfg)
+{
+    (void)cfg;
+    const char *eq = strchr(arg, '=');
+    if (!eq) {
+        fprintf(stderr, "Invalid variable syntax: '%s' (expected key=value)\n", arg);
+        return false;
+    }
+    size_t key_len = (size_t)(eq - arg);
+    char key[256];
+    if (key_len >= sizeof(key)) {
+        fprintf(stderr, "Variable key too long (max %zu): '%.*s...'\n",
+                sizeof(key) - 1, (int)(sizeof(key) - 1), arg);
+        return false;
+    }
+    memcpy(key, arg, key_len);
+    key[key_len] = '\0';
+    core_variable_override(key, eq + 1);
+    return true;
+}
+
+static bool cli_portable(const char *arg, struct frontend_state *cfg)
+{
+    (void)arg;
+    cfg->portable = true;
+    return true;
+}
+
+static bool cli_system_dir(const char *arg, struct frontend_state *cfg)
+{
+    free(cfg->system_directory);
+    cfg->system_directory = SDL_strdup(arg);
+    return true;
+}
+
+static bool cli_config(const char *arg, struct frontend_state *cfg)
+{
+    cfg->config_path = arg;
+    return true;
+}
+
+static bool cli_disk_index(const char *arg, struct frontend_state *cfg)
+{
+    char *endptr = NULL;
+    long val = strtol(arg, &endptr, 10);
+    if (*endptr != '\0' || val < 0 || val > 255) {
+        fprintf(stderr, "Invalid disk index: '%s' (expected 0-255)\n", arg);
+        return false;
+    }
+    cfg->initial_disk_index = (int)val;
+    return true;
+}
+
+static bool cli_lang(const char *arg, struct frontend_state *cfg)
+{
+    if (!parse_lang(arg, &cfg->language)) {
+        fprintf(stderr, "Unknown language code: '%s'\n", arg);
+        return false;
+    }
+    return true;
+}
+
+static bool cli_username(const char *arg, struct frontend_state *cfg)
+{
+    free(cfg->username);
+    cfg->username = SDL_strdup(arg);
+    return true;
+}
+
+static bool cli_subsystem(const char *arg, struct frontend_state *cfg)
+{
+    cfg->subsystem_ident = arg;
+    return true;
+}
+
+static bool cli_core_assets_dir(const char *arg, struct frontend_state *cfg)
+{
+    free(cfg->core_assets_directory);
+    cfg->core_assets_directory = SDL_strdup(arg);
+    return true;
+}
+
+static bool cli_playlist_dir(const char *arg, struct frontend_state *cfg)
+{
+    free(cfg->playlist_directory);
+    cfg->playlist_directory = SDL_strdup(arg);
+    return true;
+}
+
+static bool cli_file_browser_dir(const char *arg, struct frontend_state *cfg)
+{
+    free(cfg->file_browser_directory);
+    cfg->file_browser_directory = SDL_strdup(arg);
+    return true;
+}
+
+static bool cli_audio_rate(const char *arg, struct frontend_state *cfg)
+{
+    char *endptr = NULL;
+    long val = strtol(arg, &endptr, 10);
+    if (*endptr != '\0' || val < 4000 || val > 384000) {
+        fprintf(stderr, "Invalid audio rate: '%s' (expected 4000-384000)\n", arg);
+        return false;
+    }
+    cfg->audio_rate_override = (unsigned)val;
+    return true;
+}
+
+static bool cli_audio_buffer_ms(const char *arg, struct frontend_state *cfg)
+{
+    char *endptr = NULL;
+    long val = strtol(arg, &endptr, 10);
+    if (*endptr != '\0' || val < 1 || val > 5000) {
+        fprintf(stderr, "Invalid audio buffer: '%s' (expected 1-5000 ms)\n", arg);
+        return false;
+    }
+    cfg->audio_buffer_ms_override = (unsigned)val;
+    return true;
+}
+
+static bool cli_log_level(const char *arg, struct frontend_state *cfg)
+{
+    (void)cfg;
+    enum log_level lvl;
+    if (!log_parse_level(arg, &lvl)) {
+        fprintf(stderr, "Invalid log level: '%s'\n", arg);
+        return false;
+    }
+    log_set_level(lvl);
+    return true;
+}
+
+static bool cli_savestate(const char *arg, struct frontend_state *cfg)
+{
+    cfg->savestate_load_path = arg;
+    return true;
+}
+
+static const struct cli_option g_cli_options[] = {
+    { "--fullscreen",        "-f", false, cli_fullscreen,
+      "Start in fullscreen mode" },
+    { "--render",            NULL, true,  cli_render,
+      "Preferred renderer: vk, gl, or sw (core may still choose another)" },
+    { "--scale",             NULL, true,  cli_scale,
+      "Integer window scale (1-16)" },
+    { "--no-audio",          NULL, false, cli_no_audio,
+      "Disable audio output" },
+    { "--variable",          NULL, true,  cli_variable,
+      "Override a core option variable (key=value); highest priority" },
+    { "--portable",          NULL, false, cli_portable,
+      "Portable mode: use ./system as the config base" },
+    { "--system-dir",        NULL, true,  cli_system_dir,
+      "Directory for GET_SYSTEM_DIRECTORY (overrides --portable / SDL pref path)" },
+    { "--config",            NULL, true,  cli_config,
+      "Load key remapping configuration file" },
+    { "--disk-index",        NULL, true,  cli_disk_index,
+      "Multi-disc content: initial disk index (0-255)" },
+    { "--lang",              NULL, true,  cli_lang,
+      "Language code (en, ja, fr, de, es, it, pt_br, pt_pt, ru, ko, zh_cn, zh_tw, ...)" },
+    { "--username",          NULL, true,  cli_username,
+      "Player name reported via GET_USERNAME" },
+    { "--subsystem",         NULL, true,  cli_subsystem,
+      "Load content via subsystem identifier (e.g. sgb, bsx)" },
+    { "--core-assets-dir",   NULL, true,  cli_core_assets_dir,
+      "Directory for GET_CORE_ASSETS_DIRECTORY" },
+    { "--playlist-dir",      NULL, true,  cli_playlist_dir,
+      "Directory for GET_PLAYLIST_DIRECTORY" },
+    { "--file-browser-dir",  NULL, true,  cli_file_browser_dir,
+      "Directory for GET_FILE_BROWSER_START_DIRECTORY" },
+    { "--audio-rate",        NULL, true,  cli_audio_rate,
+      "Override audio sample rate in Hz (4000-384000); default: core's rate" },
+    { "--audio-buffer-ms",   NULL, true,  cli_audio_buffer_ms,
+      "Override minimum audio buffer latency in ms (1-5000)" },
+    { "--log-level",         NULL, true,  cli_log_level,
+      "debug, info (default), warn, or error (also PURERETRO_LOG env var)" },
+    { "--savestate",         NULL, true,  cli_savestate,
+      "Load a savestate file after core init" },
+};
+
+#define NUM_CLI_OPTIONS (sizeof(g_cli_options) / sizeof(g_cli_options[0]))
+
+static const struct cli_option *find_cli_option(const char *name)
+{
+    for (size_t k = 0; k < NUM_CLI_OPTIONS; ++k) {
+        const struct cli_option *opt = &g_cli_options[k];
+        if (strcmp(name, opt->long_name) == 0)
+            return opt;
+        if (opt->short_name && strcmp(name, opt->short_name) == 0)
+            return opt;
+    }
+    return NULL;
+}
+
+static void print_usage(const char *argv0)
+{
+    fprintf(stderr, "Usage: %s <core> [<content>] [options]\n", argv0);
+    fprintf(stderr, "  <core>     Path to the libretro core (e.g., nestopia_libretro.so)\n");
+    fprintf(stderr, "  <content>  Path to the game ROM or content file\n");
+    fprintf(stderr, "Options:\n");
+    for (size_t k = 0; k < NUM_CLI_OPTIONS; ++k) {
+        const struct cli_option *opt = &g_cli_options[k];
+        char head[64];
+        if (opt->short_name) {
+            snprintf(head, sizeof(head), "%s, %s%s",
+                     opt->long_name, opt->short_name,
+                     opt->wants_arg ? " <arg>" : "");
+        } else {
+            snprintf(head, sizeof(head), "%s%s",
+                     opt->long_name, opt->wants_arg ? " <arg>" : "");
+        }
+        fprintf(stderr, "  %-28s %s\n", head, opt->help);
+    }
+    fprintf(stderr, "  --log-level / PURERETRO_LOG env var sets the log threshold.\n");
+}
+
 static bool parse_args(int argc, char *argv[])
 {
-    int i;
-
     if (argc < 2) {
         print_usage(argv[0]);
         return false;
@@ -129,6 +356,7 @@ static bool parse_args(int argc, char *argv[])
 
     g_frontend.core_path = argv[1];
 
+    int i;
     if (argc >= 3 && argv[2][0] != '-') {
         g_frontend.content_path = argv[2];
         i = 3;
@@ -138,213 +366,22 @@ static bool parse_args(int argc, char *argv[])
     }
 
     for (; i < argc; ++i) {
-        if (strcmp(argv[i], "--fullscreen") == 0 ||
-            strcmp(argv[i], "-f") == 0) {
-            g_frontend.fullscreen = true;
-        } else if (strcmp(argv[i], "--scale") == 0) {
-            if (i + 1 >= argc) {
-                fprintf(stderr, "--scale requires an integer argument (1-16)\n");
-                print_usage(argv[0]);
-                return false;
-            }
-            ++i;
-            char *endptr = NULL;
-            long val = strtol(argv[i], &endptr, 10);
-            if (*endptr != '\0' || val < 1 || val > 16) {
-                fprintf(stderr, "Invalid scale: '%s' (expected 1-16)\n", argv[i]);
-                print_usage(argv[0]);
-                return false;
-            }
-            g_frontend.window_scale = (unsigned)val;
-        } else if (strcmp(argv[i], "--no-audio") == 0) {
-            g_frontend.no_audio = true;
-        } else if (strcmp(argv[i], "--portable") == 0) {
-            g_frontend.portable = true;
-        } else if (strcmp(argv[i], "--config") == 0) {
-            if (i + 1 >= argc) {
-                fprintf(stderr, "--config requires a file path\n");
-                print_usage(argv[0]);
-                return false;
-            }
-            ++i;
-            g_frontend.config_path = argv[i];
-        } else if (strcmp(argv[i], "--render") == 0) {
-            if (i + 1 >= argc) {
-                fprintf(stderr, "--render requires an argument (vk, gl, or sw)\n");
-                print_usage(argv[0]);
-                return false;
-            }
-            ++i;
-            if (!parse_render(argv[i], &g_frontend.preferred_renderer)) {
-                fprintf(stderr, "Invalid renderer: '%s' (expected vk, gl, or sw)\n",
-                        argv[i]);
-                print_usage(argv[0]);
-                return false;
-            }
-            LOG_INFO("Renderer preference: %s",
-                     renderer_name(g_frontend.preferred_renderer));
-        } else if (strcmp(argv[i], "--system-dir") == 0) {
-            if (i + 1 >= argc) {
-                fprintf(stderr, "--system-dir requires a path\n");
-                print_usage(argv[0]);
-                return false;
-            }
-            ++i;
-            free(g_frontend.system_directory);
-            g_frontend.system_directory = SDL_strdup(argv[i]);
-        } else if (strcmp(argv[i], "--variable") == 0) {
-            if (i + 1 >= argc) {
-                fprintf(stderr, "--variable requires an argument (key=value)\n");
-                print_usage(argv[0]);
-                return false;
-            }
-            ++i;
-            const char *arg = argv[i];
-            const char *eq = strchr(arg, '=');
-            if (!eq) {
-                fprintf(stderr, "Invalid variable syntax: '%s' (expected key=value)\n", arg);
-                print_usage(argv[0]);
-                return false;
-            }
-            size_t key_len = (size_t)(eq - arg);
-            char key[256];
-            if (key_len >= sizeof(key)) {
-                fprintf(stderr, "Variable key too long (max %zu): '%.*s...'\n",
-                        sizeof(key) - 1, (int)(sizeof(key) - 1), arg);
-                print_usage(argv[0]);
-                return false;
-            }
-            memcpy(key, arg, key_len);
-            key[key_len] = '\0';
-            core_variable_override(key, eq + 1);
-        } else if (strcmp(argv[i], "--disk-index") == 0) {
-            if (i + 1 >= argc) {
-                fprintf(stderr, "--disk-index requires an integer argument\n");
-                print_usage(argv[0]);
-                return false;
-            }
-            ++i;
-            char *endptr = NULL;
-            long val = strtol(argv[i], &endptr, 10);
-            if (*endptr != '\0' || val < 0 || val > 255) {
-                fprintf(stderr, "Invalid disk index: '%s' (expected 0-255)\n",
-                        argv[i]);
-                print_usage(argv[0]);
-                return false;
-            }
-            g_frontend.initial_disk_index = (int)val;
-        } else if (strcmp(argv[i], "--lang") == 0) {
-            if (i + 1 >= argc) {
-                fprintf(stderr, "--lang requires a language code\n");
-                print_usage(argv[0]);
-                return false;
-            }
-            ++i;
-            if (!parse_lang(argv[i], &g_frontend.language)) {
-                fprintf(stderr, "Unknown language code: '%s'\n", argv[i]);
-                print_usage(argv[0]);
-                return false;
-            }
-        } else if (strcmp(argv[i], "--subsystem") == 0) {
-            if (i + 1 >= argc) {
-                fprintf(stderr, "--subsystem requires a subsystem identifier\n");
-                print_usage(argv[0]);
-                return false;
-            }
-            ++i;
-            g_frontend.subsystem_ident = argv[i];
-        } else if (strcmp(argv[i], "--username") == 0) {
-            if (i + 1 >= argc) {
-                fprintf(stderr, "--username requires a name\n");
-                print_usage(argv[0]);
-                return false;
-            }
-            ++i;
-            free(g_frontend.username);
-            g_frontend.username = SDL_strdup(argv[i]);
-        } else if (strcmp(argv[i], "--core-assets-dir") == 0) {
-            if (i + 1 >= argc) {
-                fprintf(stderr, "--core-assets-dir requires a path\n");
-                print_usage(argv[0]);
-                return false;
-            }
-            ++i;
-            free(g_frontend.core_assets_directory);
-            g_frontend.core_assets_directory = SDL_strdup(argv[i]);
-        } else if (strcmp(argv[i], "--playlist-dir") == 0) {
-            if (i + 1 >= argc) {
-                fprintf(stderr, "--playlist-dir requires a path\n");
-                print_usage(argv[0]);
-                return false;
-            }
-            ++i;
-            free(g_frontend.playlist_directory);
-            g_frontend.playlist_directory = SDL_strdup(argv[i]);
-        } else if (strcmp(argv[i], "--file-browser-dir") == 0) {
-            if (i + 1 >= argc) {
-                fprintf(stderr, "--file-browser-dir requires a path\n");
-                print_usage(argv[0]);
-                return false;
-            }
-            ++i;
-            free(g_frontend.file_browser_directory);
-            g_frontend.file_browser_directory = SDL_strdup(argv[i]);
-        } else if (strcmp(argv[i], "--audio-rate") == 0) {
-            if (i + 1 >= argc) {
-                fprintf(stderr, "--audio-rate requires a Hz value (e.g. 48000)\n");
-                print_usage(argv[0]);
-                return false;
-            }
-            ++i;
-            char *endptr = NULL;
-            long val = strtol(argv[i], &endptr, 10);
-            if (*endptr != '\0' || val < 4000 || val > 384000) {
-                fprintf(stderr, "Invalid audio rate: '%s' (expected 4000-384000)\n",
-                        argv[i]);
-                print_usage(argv[0]);
-                return false;
-            }
-            g_frontend.audio_rate_override = (unsigned)val;
-        } else if (strcmp(argv[i], "--audio-buffer-ms") == 0) {
-            if (i + 1 >= argc) {
-                fprintf(stderr, "--audio-buffer-ms requires a value in milliseconds\n");
-                print_usage(argv[0]);
-                return false;
-            }
-            ++i;
-            char *endptr = NULL;
-            long val = strtol(argv[i], &endptr, 10);
-            if (*endptr != '\0' || val < 1 || val > 5000) {
-                fprintf(stderr, "Invalid audio buffer: '%s' (expected 1-5000 ms)\n",
-                        argv[i]);
-                print_usage(argv[0]);
-                return false;
-            }
-            g_frontend.audio_buffer_ms_override = (unsigned)val;
-        } else if (strcmp(argv[i], "--log-level") == 0) {
-            if (i + 1 >= argc) {
-                fprintf(stderr, "--log-level requires an argument (debug|info|warn|error)\n");
-                print_usage(argv[0]);
-                return false;
-            }
-            ++i;
-            enum log_level lvl;
-            if (!log_parse_level(argv[i], &lvl)) {
-                fprintf(stderr, "Invalid log level: '%s'\n", argv[i]);
-                print_usage(argv[0]);
-                return false;
-            }
-            log_set_level(lvl);
-        } else if (strcmp(argv[i], "--savestate") == 0) {
-            if (i + 1 >= argc) {
-                fprintf(stderr, "--savestate requires a file path\n");
-                print_usage(argv[0]);
-                return false;
-            }
-            ++i;
-            g_frontend.savestate_load_path = argv[i];
-        } else {
+        const struct cli_option *opt = find_cli_option(argv[i]);
+        if (!opt) {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
+            print_usage(argv[0]);
+            return false;
+        }
+        const char *arg = NULL;
+        if (opt->wants_arg) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "%s requires an argument\n", argv[i]);
+                print_usage(argv[0]);
+                return false;
+            }
+            arg = argv[++i];
+        }
+        if (!opt->handler(arg, &g_frontend)) {
             print_usage(argv[0]);
             return false;
         }
@@ -352,6 +389,7 @@ static bool parse_args(int argc, char *argv[])
 
     return true;
 }
+
 
 /* Compute and create g_frontend.system_directory. Best-effort: on failure
  * the field is left NULL and the program continues (cores that need a
