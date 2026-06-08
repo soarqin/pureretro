@@ -308,9 +308,6 @@ void input_process_event(const SDL_Event *event)
     if (!g_retro_key_table_built)
         build_retro_key_table();
 
-    if (!g_retro_key_table_built)
-        build_retro_key_table();
-
     scancode = event->key.scancode;
     if ((unsigned)scancode >= SDL_SCANCODE_COUNT)
         return;

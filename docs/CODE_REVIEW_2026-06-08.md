@@ -86,13 +86,13 @@ bit0/bit1 互换。C-1 修了之后此 bug 立即导致核心推断"video 关闭
 ### I-5 Vulkan 不清除 letterbox/pillarbox 区域
 **位置**：`video_vk.c:654` — blit 前插 `vkCmdClearColorImage`。
 
-### I-6 ESC/F11 硬编码拦截与 SET_KEYBOARD_CALLBACK 冲突
+### I-6 ESC/F11 硬编码拦截与 SET_KEYBOARD_CALLBACK 冲突 ✅
 **位置**：`main.c:472-478` — 交互 callback 活跃时禁用快捷退出。
 
 ### I-7 HiDPI/显示缩放变化不触发 backend resize
 **位置**：`main.c:481-484` — 追加 DISPLAY_SCALE_CHANGED；最小化时暂停 run loop。
 
-### I-8 `input_process_event` 重复调用 `build_retro_key_table`
+### I-8 `input_process_event` 重复调用 `build_retro_key_table` ✅
 **位置**：`src/input.c:308-312` — 删除重复调用。
 
 ### I-9 SRAM 加载时静默截断

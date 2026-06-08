@@ -475,7 +475,14 @@ static void run_loop(void)
             case SDL_EVENT_KEY_DOWN:
             case SDL_EVENT_KEY_UP:
                 input_process_event(&event);
-                if (event.type == SDL_EVENT_KEY_DOWN) {
+                /* Frontend hotkey interception: only fires when the core has
+                 * NOT registered a keyboard callback. Cores that take
+                 * full keyboard input (DOSBox, computer emulators) need
+                 * unimpeded ESC/F11 — otherwise the user can't type ESC
+                 * in their guest OS. Exit those cores via window close
+                 * (SDL_EVENT_QUIT). */
+                if (event.type == SDL_EVENT_KEY_DOWN &&
+                    !g_frontend.keyboard_callback.callback) {
                     if (event.key.key == SDLK_F11) {
                         g_frontend.fullscreen = !g_frontend.fullscreen;
                         SDL_SetWindowFullscreen(g_frontend.video.window,
