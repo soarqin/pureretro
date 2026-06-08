@@ -33,6 +33,10 @@ struct video_vk_context
     uint32_t queue_family_index;
     VkSurfaceKHR surface;
     VkCommandPool cmd_pool;
+    /* The window we created the surface and swapchain against. Kept so
+     * video_vk_present() can recreate the swapchain in-place when the
+     * driver reports VK_ERROR_OUT_OF_DATE_KHR / VK_SUBOPTIMAL_KHR. */
+    SDL_Window *window;
 
     /* Swapchain */
     VkSwapchainKHR swapchain;
@@ -63,6 +67,12 @@ struct video_vk_context
     struct retro_hw_render_interface_vulkan hw_if;
     struct retro_vulkan_image pending_image;
     bool has_pending_image;
+
+    /* Set when vkAcquireNextImageKHR / vkQueuePresentKHR returns
+     * VK_ERROR_OUT_OF_DATE_KHR or VK_SUBOPTIMAL_KHR. The next
+     * video_vk_present() call recreates the swapchain before
+     * acquiring an image. */
+    bool swapchain_dirty;
 
     /* Cached proc addresses */
     PFN_vkGetInstanceProcAddr get_instance_proc_addr;
