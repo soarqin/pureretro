@@ -71,7 +71,7 @@ bit0/bit1 互换。C-1 修了之后此 bug 立即导致核心推断"video 关闭
 
 ## 重要缺陷（Important — 合并前修复）
 
-### I-1 `core_init` 失败路径触发未配对的 `retro_deinit`/`retro_unload_game`
+### I-1 `core_init` 失败路径触发未配对的 `retro_deinit`/`retro_unload_game` ✅
 **位置**：`core.c:401-412,449` — 引入 `g_core_initialized`/`g_game_loaded` 守卫。
 
 ### I-2 Vulkan 交换链不在 OUT_OF_DATE/SUBOPTIMAL 时重建

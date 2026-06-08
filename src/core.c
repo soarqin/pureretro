@@ -24,6 +24,14 @@ struct retro_system_av_info g_av_info;
 
 static SDL_SharedObject *g_core_handle = NULL;
 
+/* Lifecycle guards for paired libretro calls. Tracking these explicitly
+ * lets core_unload() be safely invoked from any failure path in
+ * core_init() without invoking retro_unload_game() before
+ * retro_load_game() ever succeeded, or retro_deinit() before
+ * retro_init() ran. */
+static bool g_core_initialized = false;
+static bool g_game_loaded = false;
+
 /* ------------------------------------------------------------------ */
 /* Helpers                                                            */
 /* ------------------------------------------------------------------ */
@@ -358,12 +366,18 @@ void core_unload(void)
      * retro_load_game(); retro_unload_game() is responsible for stopping
      * them. Calling retro_deinit() first would tear down global state
      * while those threads are still running, leading to use-after-free
-     * or null-pointer crashes (e.g. in System_AudioPushSamples). */
-    if (g_core.retro_unload_game)
+     * or null-pointer crashes (e.g. in System_AudioPushSamples).
+     *
+     * Both calls are also guarded by g_game_loaded / g_core_initialized
+     * so a failed core_init() that bails out partway does not invoke
+     * either function with an unpaired or out-of-order lifecycle. */
+    if (g_game_loaded && g_core.retro_unload_game)
         g_core.retro_unload_game();
+    g_game_loaded = false;
 
-    if (g_core.retro_deinit)
+    if (g_core_initialized && g_core.retro_deinit)
         g_core.retro_deinit();
+    g_core_initialized = false;
 
     if (g_core_handle) {
         SDL_UnloadObject(g_core_handle);
@@ -410,6 +424,7 @@ bool core_init(const char *content_path)
     g_core.retro_set_input_poll(core_input_poll);
     g_core.retro_set_input_state(core_input_state);
     g_core.retro_init();
+    g_core_initialized = true;
 
     g_core.retro_get_system_info(&info);
     LOG_INFO("Core: %s (v%s)", info.library_name, info.library_version);
@@ -483,6 +498,7 @@ bool core_init(const char *content_path)
             g_frontend.rom_size = 0;
             return false;
         }
+        g_game_loaded = true;
         LOG_INFO("Game load succeeded");
     } else {
         LOG_INFO("Calling retro_load_game(NULL)...");
@@ -490,6 +506,7 @@ bool core_init(const char *content_path)
             LOG_ERROR("retro_load_game(NULL) failed");
             return false;
         }
+        g_game_loaded = true;
         LOG_INFO("retro_load_game(NULL) succeeded");
     }
 
