@@ -30,6 +30,7 @@ void setUp(void) {
              "/tmp/pureretro_test_vfs_%d", (int)getpid());
     snprintf(g_tmpfile, sizeof(g_tmpfile), "%s/data.bin", g_tmpdir);
     mkdir(g_tmpdir, 0700);
+    remove(g_tmpfile);
 }
 
 void tearDown(void) {

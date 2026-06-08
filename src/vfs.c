@@ -20,9 +20,13 @@
 #include <string.h>
 
 #ifdef _WIN32
+#  include <sys/types.h>
 #  define fseeko _fseeki64
 #  define ftello _ftelli64
-   typedef long long off_t;
+#  if !defined(__MINGW32__) && !defined(_OFF_T_DEFINED)
+     typedef long long off_t;
+#    define _OFF_T_DEFINED
+#  endif
 #else
 #  include <sys/types.h>
 #endif
@@ -98,6 +102,8 @@ static int64_t RETRO_CALLCONV vfs_size(struct retro_vfs_file_handle *stream)
     if (fseeko(h->fp, 0, SEEK_END) != 0)
         return -1;
     int64_t end = ftello(h->fp);
+    if (end < 0)
+        return -1;
     if (fseeko(h->fp, (off_t)pos, SEEK_SET) != 0)
         return -1;
     return end;
@@ -135,6 +141,8 @@ static int64_t RETRO_CALLCONV vfs_read(struct retro_vfs_file_handle *stream,
     struct vfs_file_handle *h = (struct vfs_file_handle *)stream;
     if (!h || !s)
         return -1;
+    if (len > SIZE_MAX)
+        return -1;
     size_t n = fread(s, 1, (size_t)len, h->fp);
     if (n < (size_t)len && ferror(h->fp)) {
         clearerr(h->fp);
@@ -149,6 +157,8 @@ static int64_t RETRO_CALLCONV vfs_write(struct retro_vfs_file_handle *stream,
 {
     struct vfs_file_handle *h = (struct vfs_file_handle *)stream;
     if (!h || !s)
+        return -1;
+    if (len > SIZE_MAX)
         return -1;
     size_t n = fwrite(s, 1, (size_t)len, h->fp);
     if (n < (size_t)len && ferror(h->fp)) {
