@@ -98,7 +98,7 @@ bit0/bit1 互换。C-1 修了之后此 bug 立即导致核心推断"video 关闭
 ### I-9 SRAM 加载时静默截断 ✅
 **位置**：`core.c:608-615` — 文件 > slot 时拒绝加载。
 
-### I-10 SERIALIZATION_QUIRKS 与 HW_SHARED_CONTEXT 共用 case 存在 NULL 解引用风险
+### I-10 SERIALIZATION_QUIRKS 与 HW_SHARED_CONTEXT 共用 case 存在 NULL 解引用风险 ✅
 **位置**：`core.c:1593-1613` — 消除全局 EXP 剥离或增加 per-case 守卫。
 
 ### I-11 Fast-forward 时音频继续按原速推送 ✅
@@ -116,18 +116,18 @@ bit0/bit1 互换。C-1 修了之后此 bug 立即导致核心推断"video 关闭
 
 | 编号 | 位置 | 描述 |
 |------|------|------|
-| M-1 | `core.c:862` | `SET_MESSAGE` 源标签 `[CORE]` 与 `LOG_INFO` 的 `[FRONTEND]` 重复 |
-| M-2 | `core_variables.c:190,207` | 强制 cast 抹掉 const，应暴露 `_get_mutable` |
-| M-3 | `core.c:1444-1462` | `SET_CORE_OPTIONS_INTL` 忽略 `local` 但返回 true |
-| M-4 | `core_variables_parse.c:21-23` | `parse_default` 对无 `;` 的 v0 字符串行为不一致 |
-| M-5 | `core_variables.c:60-61` | 遇重复 key 整表清空，应 WARN 后跳过 |
-| M-6 | `main.c:390-401` | `SDL_GetPrefPath` 用 `const char*` + cast，应用 `char*` |
-| M-7 | `main.c:439-445` | `SDL_strdup` 混用 `free`/`SDL_free`，统一为 `SDL_free` |
-| M-8 | `main.c:130` | `argv[2][0] != '-'` 拒绝 `-` 开头的内容路径 |
-| M-9 | `vfs.c:71-84` | `vfs_size` 在 `fseek` 失败时 stream 已被偏移到 EOF ✅ |
-| M-10 | `main.c:460-461` | `g_av_info.timing.fps` 未上限校验，过高 fps 可导致忙等 |
-| M-11 | `audio.c:144` | Audio occupancy 未含设备硬件缓冲，underrun 误报 |
-| M-12 | `input.c:331-336` | `enum retro_mod` 用 `|=`，Clang `-Wassign-enum` 警告 |
+| M-1 ✅ | `core.c:862` | `SET_MESSAGE` 源标签 `[CORE]` 与 `LOG_INFO` 的 `[FRONTEND]` 重复 |
+| M-2 ✅ | `core_variables.c:190,207` | 强制 cast 抹掉 const，应暴露 `_get_mutable` |
+| M-3 ✅ | `core.c:1444-1462` | `SET_CORE_OPTIONS_INTL` 忽略 `local` 但返回 true |
+| M-4 ✅ | `core_variables_parse.c:21-23` | `parse_default` 对无 `;` 的 v0 字符串行为不一致 |
+| M-5 ✅ | `core_variables.c:60-61` | 遇重复 key 整表清空，应 WARN 后跳过 |
+| M-6 ✅ | `main.c:390-401` | `SDL_GetPrefPath` 用 `const char*` + cast，应用 `char*` |
+| M-7 ✅ | `main.c:439-445` | `SDL_strdup` 混用 `free`/`SDL_free`，统一为 `SDL_free` |
+| M-8 ✅ | `main.c:130` | `argv[2][0] != '-'` 拒绝 `-` 开头的内容路径 |
+| M-9 ✅ | `vfs.c:71-84` | `vfs_size` 在 `fseek` 失败时 stream 已被偏移到 EOF |
+| M-10 ✅ | `main.c:460-461` | `g_av_info.timing.fps` 未上限校验，过高 fps 可导致忙等 |
+| M-11 ✅ | `audio.c:144` | Audio occupancy 未含设备硬件缓冲，underrun 误报 |
+| M-12 ✅ | `input.c:331-336` | `enum retro_mod` 用 `|=`，Clang `-Wassign-enum` 警告 |
 
 ---
 
@@ -169,28 +169,28 @@ bit0/bit1 互换。C-1 修了之后此 bug 立即导致核心推断"video 关闭
 
 ## Top 5 重构建议（按 ROI 排序）
 
-### R1. 拆分 `core_environment`
+### R1. 拆分 `core_environment` ✅
 **动机**：1020 行 switch + EXP 标志陷阱是项目最大单点。
 **做法**：按类别抽 static handler（set*/get*/video/audio）；删除全局 `cmd &= ~EXP`；用 dispatch helper 表。
 **风险**：低。**工作量**：M（~2 天）。
 **收益**：C-1、I-10 物理消失，新增 callback 变成加一行表项。
 
-### R2. Vulkan 三像素/二栅栏修复 + swapchain 生命周期统一
+### R2. Vulkan 三像素/二栅栏修复 + swapchain 生命周期统一 ✅
 **动机**：C-5、I-2、I-3、I-5 都是 Vulkan 同步/生命周期问题。
 **做法**：per-image fence tracking；抽 `swapchain_recreate_if_needed()`，所有 OOD/SUBOPTIMAL 路径统一调；swapchain 重建用临时变量 atomic swap。
 **风险**：中（Vulkan 同步，需 validation layer 验证）。**工作量**：M（~3 天）。
 
-### R3. VFS 层全面修复
+### R3. VFS 层全面修复 ✅
 **动机**：C-3、C-4、I-13 + M-9 同属 VFS 层，批量修复便于统一测试。
 **做法**：`vfs_seek` 返回 `ftello`；`read/write` 检查 `ferror`；`size` 修复 stream 损坏；全加 `RETRO_CALLCONV`。
 **风险**：低（VFS 函数独立）。**工作量**：S（@半 天）。
 
-### R4. `input.c` / `main.c` 复制粘贴清理 + 小缺陷批量修复
+### R4. `input.c` / `main.c` 复制粘贴清理 + 小缺陷批量修复 ✅
 **动机**：C-6、I-8、I-6、I-7、M-6、M-7、M-8、M-12 都是几天小修补。
 **做法**：删重复代码；统一 `SDL_free`；`--system-dir` 真实现；ESC 快捷退出受 keyboard_callback 保护；追加 DISPLAY_SCALE_CHANGED。
 **风险**：极低。**工作量**：S（@1 天）。
 
-### R5. 巨型函数重构
+### R5. 巨型函数重构 ✅
 **动机**：`core_environment`（R1 已覆盖）外，`core_init`（124 行）和 `parse_args`（210 行）是次要目标。
 **做法**：`core_init` 抽 `core_load_game`/`core_init_hw_render`；`parse_args` 抽 flag 到 struct `cli_option_handlers[]` 表（或至少 if-else 按功能分组加注释边界）。
 **风险**：低。**工作量**：S（~0.5 天）。
