@@ -12,25 +12,8 @@ set(CMAKE_C_EXTENSIONS OFF)
 # Options
 option(PURERETRO_ENABLE_VULKAN "Enable Vulkan hardware renderer" ON)
 
-# -----------------------------------------------------------------------------
-# SDL3 — try system first, fallback to FetchContent
-# -----------------------------------------------------------------------------
-find_package(SDL3 CONFIG QUIET)
-
-if(NOT SDL3_FOUND)
-    message(STATUS "SDL3 not found on system, fetching from source...")
-    include(FetchContent)
-    FetchContent_Declare(
-        SDL3
-        URL       https://github.com/libsdl-org/SDL/releases/download/release-3.2.4/SDL3-3.2.4.tar.gz
-        URL_HASH  SHA256=2938328317301dfbe30176d79c251733aa5e7ec5c436c800b99ed4da7adcb0f0
-        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-    )
-    set(SDL_TESTS    OFF CACHE BOOL "" FORCE)
-    set(SDL_SHARED   OFF CACHE BOOL "" FORCE)
-    set(SDL_STATIC   ON  CACHE BOOL "" FORCE)
-    FetchContent_MakeAvailable(SDL3)
-endif()
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+include(Dependencies)
 
 # Source files
 set(PURERETRO_SOURCES
@@ -116,3 +99,8 @@ endif()
 
 # Install
 install(TARGETS pureretro DESTINATION bin)
+
+if(PURERETRO_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()

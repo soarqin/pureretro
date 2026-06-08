@@ -235,6 +235,25 @@ CLI-usage output remains direct `fprintf(stderr, ...)`.
 - Platform-specific `#ifdef` blocks should be minimal and isolated.
 - Test compilation logic on all three targets (Windows, Linux, macOS) mentally before committing.
 
+## Testing
+
+Unit tests live under `tests/unit/` and use the Unity framework (pulled via CPM).
+Dependencies are managed by `cmake/Dependencies.cmake`. SDL3 may be resolved
+from the system (`-DPURERETRO_PREFER_SYSTEM_SDL3=ON`) or fetched via CPM
+(default). Build and run:
+
+```bash
+cmake -S . -B build/
+cmake --build build/ --parallel
+ctest --test-dir build/ --output-on-failure
+```
+
+To skip tests entirely: `-DPURERETRO_BUILD_TESTS=OFF`.
+
+Tests cover pure functions only: `core_variables_parse`, `core_variables`,
+`vfs` (real tmp files), `log_level_from_string`, `input` keymap parser, CLI
+`parse_cli`. Subsystems requiring live SDL/GL/Vulkan context are not unit-tested.
+
 ## Agent Workflow
 
 1. **Read this file** before making changes.
