@@ -1095,7 +1095,7 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
     case RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE:
         return false;
 
-    case RETRO_ENVIRONMENT_GET_INPUT_BITMASKS:
+    case RETRO_ENVIRONMENT_GET_INPUT_BITMASKS & ~RETRO_ENVIRONMENT_EXPERIMENTAL:
         if (!require_data(cmd, data))
             return false;
         *(bool *)data = true;
@@ -1107,10 +1107,10 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         *(uint64_t *)data = (1 << RETRO_DEVICE_JOYPAD);
         return true;
 
-    case RETRO_ENVIRONMENT_GET_SENSOR_INTERFACE:
+    case RETRO_ENVIRONMENT_GET_SENSOR_INTERFACE & ~RETRO_ENVIRONMENT_EXPERIMENTAL:
         return false;
 
-    case RETRO_ENVIRONMENT_GET_CAMERA_INTERFACE:
+    case RETRO_ENVIRONMENT_GET_CAMERA_INTERFACE & ~RETRO_ENVIRONMENT_EXPERIMENTAL:
         return false;
 
     case RETRO_ENVIRONMENT_GET_LOG_INTERFACE: {
@@ -1257,7 +1257,7 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         return true;
     }
 
-    case RETRO_ENVIRONMENT_GET_CURRENT_SOFTWARE_FRAMEBUFFER: {
+    case RETRO_ENVIRONMENT_GET_CURRENT_SOFTWARE_FRAMEBUFFER & ~RETRO_ENVIRONMENT_EXPERIMENTAL: {
         if (!require_data(cmd, data))
             return false;
         struct retro_framebuffer *fb = (struct retro_framebuffer *)data;
@@ -1284,7 +1284,7 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         return true;
     }
 
-    case RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE:
+    case RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE & ~RETRO_ENVIRONMENT_EXPERIMENTAL:
         if (!require_data(cmd, data))
             return false;
         /* libretro spec: bit0 = RETRO_AV_ENABLE_VIDEO (always on),
@@ -1332,13 +1332,13 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         return true;
     }
 
-    case RETRO_ENVIRONMENT_GET_FASTFORWARDING:
+    case RETRO_ENVIRONMENT_GET_FASTFORWARDING & ~RETRO_ENVIRONMENT_EXPERIMENTAL:
         if (!require_data(cmd, data))
             return false;
         *(bool *)data = g_frontend.fast_forward_active;
         return true;
 
-    case RETRO_ENVIRONMENT_GET_TARGET_REFRESH_RATE: {
+    case RETRO_ENVIRONMENT_GET_TARGET_REFRESH_RATE & ~RETRO_ENVIRONMENT_EXPERIMENTAL: {
         if (!require_data(cmd, data))
             return false;
         float rate = 60.0f;
@@ -1406,7 +1406,7 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         return true;
     }
 
-    case RETRO_ENVIRONMENT_GET_VFS_INTERFACE: {
+    case RETRO_ENVIRONMENT_GET_VFS_INTERFACE & ~RETRO_ENVIRONMENT_EXPERIMENTAL: {
         if (!require_data(cmd, data))
             return false;
         struct retro_vfs_interface_info *info =

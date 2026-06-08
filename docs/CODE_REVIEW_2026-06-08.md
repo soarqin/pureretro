@@ -6,7 +6,7 @@
 
 ## 严重缺陷（Critical — 立即修复）
 
-### C-1 `core_environment` 中所有 EXPERIMENTAL case 不可达
+### C-1 `core_environment` 中所有 EXPERIMENTAL case 不可达 ✅
 
 **位置**：`src/core.c:827` 全局剥离 `cmd &= ~RETRO_ENVIRONMENT_EXPERIMENTAL`，但下方 6 处 case 标签仍使用未剥离宏值，永远不会匹配。
 
