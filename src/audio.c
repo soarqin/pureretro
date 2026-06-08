@@ -154,10 +154,18 @@ void audio_notify_buffer_status(void)
         if (pct > 100)
             pct = 100;
         occupancy = (unsigned)pct;
-        /* Conservative threshold: less than ~20% buffered means the next
-         * frame is at risk of underrunning. Cores that listen to this
-         * typically frame-skip when triggered. */
-        underrun_likely = (occupancy < 20);
+        /* SDL_GetAudioStreamQueued only reports bytes still in the SDL
+         * stream — it cannot see what the audio device has already pulled
+         * into its hardware/driver ring buffer (typically 80-200ms on
+         * desktop drivers). A near-empty SDL queue therefore does NOT
+         * necessarily mean playback is about to underrun.
+         *
+         * To avoid false-positives that make cores frame-skip unnecessarily,
+         * only flag underrun when the SDL queue is essentially drained
+         * (under ~5% of cap). Cores that listen to this still get a useful
+         * signal during real stalls, but ordinary steady-state playback
+         * (where the device buffer absorbs the slack) no longer trips it. */
+        underrun_likely = (occupancy < 5);
     }
 
     g_buffer_status_cb(active, occupancy, underrun_likely);

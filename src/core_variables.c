@@ -139,8 +139,8 @@ fail:
     return false;
 }
 
-const struct core_option *core_options_table_get(
-        const struct core_options_table *t, const char *key)
+static struct core_option *core_options_table_get_mutable(
+        struct core_options_table *t, const char *key)
 {
     if (!t || !key || t->count == 0)
         return NULL;
@@ -157,6 +157,12 @@ const struct core_option *core_options_table_get(
             lo = mid + 1;
     }
     return NULL;
+}
+
+const struct core_option *core_options_table_get(
+        const struct core_options_table *t, const char *key)
+{
+    return core_options_table_get_mutable((struct core_options_table *)t, key);
 }
 
 const struct core_option *core_options_table_at(
@@ -187,7 +193,7 @@ bool core_options_table_set_value(struct core_options_table *t,
     if (!v)
         return false;
 
-    struct core_option *mutable_opt = (struct core_option *)opt;
+    struct core_option *mutable_opt = core_options_table_get_mutable(t, key);
     free(mutable_opt->current_value);
     mutable_opt->current_value = v;
     return true;
@@ -204,7 +210,7 @@ bool core_options_table_set_visible(struct core_options_table *t,
     if (!opt)
         return false;
 
-    ((struct core_option *)opt)->visible = visible;
+    core_options_table_get_mutable(t, key)->visible = visible;
     return true;
 }
 

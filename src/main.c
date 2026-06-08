@@ -163,7 +163,7 @@ static bool cli_portable(const char *arg, struct frontend_state *cfg)
 static bool cli_system_dir(const char *arg, struct frontend_state *cfg)
 {
     free(cfg->system_directory);
-    cfg->system_directory = SDL_strdup(arg);
+    cfg->system_directory = strdup(arg);
     return true;
 }
 
@@ -197,7 +197,7 @@ static bool cli_lang(const char *arg, struct frontend_state *cfg)
 static bool cli_username(const char *arg, struct frontend_state *cfg)
 {
     free(cfg->username);
-    cfg->username = SDL_strdup(arg);
+    cfg->username = strdup(arg);
     return true;
 }
 
@@ -210,21 +210,21 @@ static bool cli_subsystem(const char *arg, struct frontend_state *cfg)
 static bool cli_core_assets_dir(const char *arg, struct frontend_state *cfg)
 {
     free(cfg->core_assets_directory);
-    cfg->core_assets_directory = SDL_strdup(arg);
+    cfg->core_assets_directory = strdup(arg);
     return true;
 }
 
 static bool cli_playlist_dir(const char *arg, struct frontend_state *cfg)
 {
     free(cfg->playlist_directory);
-    cfg->playlist_directory = SDL_strdup(arg);
+    cfg->playlist_directory = strdup(arg);
     return true;
 }
 
 static bool cli_file_browser_dir(const char *arg, struct frontend_state *cfg)
 {
     free(cfg->file_browser_directory);
-    cfg->file_browser_directory = SDL_strdup(arg);
+    cfg->file_browser_directory = strdup(arg);
     return true;
 }
 
@@ -357,7 +357,11 @@ static bool parse_args(int argc, char *argv[])
     g_frontend.core_path = argv[1];
 
     int i;
-    if (argc >= 3 && argv[2][0] != '-') {
+    /* Treat argv[2] as content unless it matches a known flag. This lets
+     * legitimate filenames that begin with '-' (e.g. "-test.sfc") be loaded
+     * as content. Unknown '-' tokens still fall through to the flag parser,
+     * which reports them via print_usage. */
+    if (argc >= 3 && find_cli_option(argv[2]) == NULL) {
         g_frontend.content_path = argv[2];
         i = 3;
     } else {
@@ -432,7 +436,7 @@ static void set_system_directory(void)
 
     /* Default: SDL_GetPrefPath returns a platform-appropriate user data
      * directory, already terminated with a separator. */
-    const char *pref = SDL_GetPrefPath("pureretro", "system");
+    char *pref = SDL_GetPrefPath("pureretro", "system");
     if (!pref)
         return;
 
@@ -443,7 +447,7 @@ static void set_system_directory(void)
         LOG_INFO("System directory: %s", g_frontend.system_directory);
         SDL_CreateDirectory(g_frontend.system_directory);
     }
-    SDL_free((void *)pref);
+    SDL_free(pref);
 }
 
 static bool frontend_init(void)
@@ -487,7 +491,7 @@ static void frontend_shutdown(void)
     g_frontend.playlist_directory = NULL;
     free(g_frontend.file_browser_directory);
     g_frontend.file_browser_directory = NULL;
-    SDL_free(g_frontend.username);
+    free(g_frontend.username);
     g_frontend.username = NULL;
     SDL_Quit();
 }
@@ -503,7 +507,13 @@ static void run_loop(void)
         /* Recompute the target frame budget every iteration so a core that
          * changes its AV info via SET_SYSTEM_AV_INFO mid-run is honoured. */
         double fps = g_av_info.timing.fps;
-        Uint64 target_frame_ns = (fps > 0.0) ? (Uint64)(1000000000.0 / fps) : 0;
+        /* Sanity-clamp fps: absurdly high values produce target_frame_ns=0
+         * and spin the CPU at 100%; zero/negative fps also degenerate. */
+        if (fps <= 0.0)
+            fps = 60.0;
+        else if (fps > 1000.0)
+            fps = 1000.0;
+        Uint64 target_frame_ns = (Uint64)(1000000000.0 / fps);
 
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
@@ -582,7 +592,7 @@ static void run_loop(void)
 
         /* Skip the frame-pacing delay when the core has requested
          * fast-forward via SET_FASTFORWARDING_OVERRIDE. */
-        if (target_frame_ns > 0 && !g_frontend.fast_forward_active) {
+        if (!g_frontend.fast_forward_active) {
             Uint64 elapsed = SDL_GetTicksNS() - frame_start;
             if (elapsed < target_frame_ns)
                 SDL_DelayNS(target_frame_ns - elapsed);

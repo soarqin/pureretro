@@ -14,13 +14,13 @@ bool core_var_parse_default(const char *raw, char *out, size_t out_len)
         return false;
 
     const char *def = strchr(raw, ';');
-    if (def) {
-        ++def;
-        while (*def == ' ')
-            ++def;
-    } else {
-        def = raw;
+    if (!def) {
+        /* v0 spec: "desc" with no ';' means no default. */
+        return false;
     }
+    ++def;
+    while (*def == ' ')
+        ++def;
 
     if (*def == '\0')
         return false;

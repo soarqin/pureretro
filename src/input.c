@@ -325,7 +325,11 @@ void input_process_event(const SDL_Event *event)
     if (g_frontend.keyboard_callback.callback) {
         enum retro_key rk = g_sdl_to_retro_key[scancode];
         if (rk != RETROK_UNKNOWN) {
-            enum retro_mod mod = RETROKMOD_NONE;
+            /* Use an unsigned bitmask, not `enum retro_mod`: combining
+             * RETROKMOD_* values via |= produces values outside the
+             * enum's named members and trips Clang's -Wassign-enum.
+             * The callback takes a uint16_t bitfield anyway. */
+            unsigned mod = RETROKMOD_NONE;
             SDL_Keymod sdl_mod = event->key.mod;
             if (sdl_mod & SDL_KMOD_SHIFT) mod |= RETROKMOD_SHIFT;
             if (sdl_mod & SDL_KMOD_CTRL)  mod |= RETROKMOD_CTRL;
@@ -333,7 +337,7 @@ void input_process_event(const SDL_Event *event)
             if (sdl_mod & SDL_KMOD_GUI)   mod |= RETROKMOD_META;
 
             g_frontend.keyboard_callback.callback(
-                pressed, rk, (uint32_t)event->key.key, mod);
+                pressed, rk, (uint32_t)event->key.key, (uint16_t)mod);
         }
     }
 }
