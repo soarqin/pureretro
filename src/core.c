@@ -1012,13 +1012,16 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
             core_var_parse_default(v->value, def, sizeof(def));
 
             const char *choices = core_var_choices_begin(v->value);
-            const char *values[64];
+            /* libretro spec caps choices at RETRO_NUM_CORE_OPTION_VALUES_MAX
+             * (128). Allocate one extra slot for the trailing NULL sentinel
+             * required by core_options_table_add. */
+            const char *values[RETRO_NUM_CORE_OPTION_VALUES_MAX + 1];
             size_t val_count = 0;
 
             if (choices) {
                 const char *p = choices;
                 while (*p) {
-                    if (val_count >= 63) {
+                    if (val_count >= RETRO_NUM_CORE_OPTION_VALUES_MAX) {
                         ok = false;
                         break;
                     }

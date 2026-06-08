@@ -104,7 +104,7 @@ bit0/bit1 互换。C-1 修了之后此 bug 立即导致核心推断"video 关闭
 ### I-11 Fast-forward 时音频继续按原速推送
 **位置**：`audio.c:103-105` — ff 时 `audio_push` 直接 return。
 
-### I-12 `SET_VARIABLES` 数组上限 64 < 规范 128
+### I-12 `SET_VARIABLES` 数组上限 64 < 规范 128 ✅
 **位置**：`core.c:998` — 64 改为 `RETRO_NUM_CORE_OPTION_VALUES_MAX`。
 
 ### I-13 VFS 函数指针缺 `RETRO_CALLCONV` ✅
