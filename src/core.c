@@ -956,6 +956,542 @@ static bool env_set_input_descriptors(struct frontend_state *fe, void *data)
     return false;
 }
 
+/* ---- R1b: mid-complexity handlers ---- */
+
+static bool env_set_rotation(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_set_rotation: NULL data"); return false; }
+    unsigned rot = *(const unsigned *)data;
+    if (rot > 3) {
+        LOG_WARN("SET_ROTATION: ignoring invalid rotation %u (expected 0-3)",
+                 rot);
+        return false;
+    }
+    fe->video.rotation = rot;
+    LOG_INFO("Core requested rotation: %u (%u degrees CCW)",
+             rot, rot * 90);
+    return true;
+}
+
+static bool env_set_pixel_format(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_set_pixel_format: NULL data"); return false; }
+    enum retro_pixel_format fmt = *(const enum retro_pixel_format *)data;
+    const char *fmt_name = "unknown";
+    switch (fmt) {
+    case RETRO_PIXEL_FORMAT_0RGB1555: fmt_name = "0RGB1555"; break;
+    case RETRO_PIXEL_FORMAT_XRGB8888: fmt_name = "XRGB8888"; break;
+    case RETRO_PIXEL_FORMAT_RGB565:   fmt_name = "RGB565";   break;
+    case RETRO_PIXEL_FORMAT_UNKNOWN:  fmt_name = "UNKNOWN";  break;
+    }
+    LOG_INFO("Core requested pixel format: %s (%d)", fmt_name, (int)fmt);
+    /* Accept all formats. The software renderer will handle whatever the
+     * core sends. Returning false here causes cores like Beetle PSX HW
+     * to skip SET_HW_RENDER entirely and fall back to software. */
+    fe->video.pixel_format = fmt;
+    return true;
+}
+
+static bool env_set_keyboard_callback(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_set_keyboard_callback: NULL data"); return false; }
+    const struct retro_keyboard_callback *cb =
+        (const struct retro_keyboard_callback *)data;
+    fe->keyboard_callback = *cb;
+    return true;
+}
+
+static bool env_set_disk_control_interface(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_set_disk_control_interface: NULL data"); return false; }
+    const struct retro_disk_control_callback *legacy =
+        (const struct retro_disk_control_callback *)data;
+    /* The legacy struct's first 7 fields are layout-identical to the
+     * ext struct. memcpy those and leave the ext-only fields NULL
+     * (memset guarantees set_initial_image/get_image_path/get_image_label). */
+    memset(&fe->disk_control, 0, sizeof(fe->disk_control));
+    memcpy(&fe->disk_control, legacy,
+           sizeof(struct retro_disk_control_callback));
+    fe->has_disk_control = true;
+    LOG_INFO("Core registered legacy disk control interface");
+    disk_control_apply_initial_index();
+    return true;
+}
+
+static bool env_get_preferred_hw_render(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_get_preferred_hw_render: NULL data"); return false; }
+    int *preferred = (int *)data;
+    bool result;
+    switch (fe->preferred_renderer) {
+    case VIDEO_RENDERER_VULKAN: *preferred = RETRO_HW_CONTEXT_VULKAN;     result = true; break;
+    case VIDEO_RENDERER_OPENGL: *preferred = RETRO_HW_CONTEXT_OPENGL_CORE; result = true; break;
+    case VIDEO_RENDERER_SW:     *preferred = RETRO_HW_CONTEXT_NONE;       result = true; break;
+    case VIDEO_RENDERER_NONE:
+    default:                    result = false; break;
+    }
+    LOG_DEBUG("Core queried preferred HW render: %s (context=%d)",
+              result ? "yes" : "no (no preference)", *preferred);
+    return result;
+}
+
+static bool env_get_variable_update(struct frontend_state *fe, void *data)
+{
+    (void)fe;
+    if (!data) { LOG_WARN("env_get_variable_update: NULL data"); return false; }
+    *(bool *)data = false;
+    return true;
+}
+
+static bool env_set_frame_time_callback(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_set_frame_time_callback: NULL data"); return false; }
+    const struct retro_frame_time_callback *cb =
+        (const struct retro_frame_time_callback *)data;
+    fe->frame_time_callback = cb->callback;
+    fe->frame_time_reference = cb->reference;
+    LOG_INFO("Core registered frame-time callback (reference=%lld us)",
+             (long long)cb->reference);
+    return true;
+}
+
+static bool env_set_audio_callback(struct frontend_state *fe, void *data)
+{
+    (void)fe; (void)data;
+    return false;
+}
+
+static bool env_get_rumble_interface(struct frontend_state *fe, void *data)
+{
+    (void)fe; (void)data;
+    return false;
+}
+
+static bool env_get_input_bitmasks(struct frontend_state *fe, void *data)
+{
+    (void)fe;
+    if (!data) { LOG_WARN("env_get_input_bitmasks: NULL data"); return false; }
+    *(bool *)data = true;
+    return true;
+}
+
+static bool env_get_input_device_capabilities(struct frontend_state *fe, void *data)
+{
+    (void)fe;
+    if (!data) { LOG_WARN("env_get_input_device_capabilities: NULL data"); return false; }
+    *(uint64_t *)data = (1 << RETRO_DEVICE_JOYPAD);
+    return true;
+}
+
+static bool env_get_sensor_interface(struct frontend_state *fe, void *data)
+{
+    (void)fe; (void)data;
+    return false;
+}
+
+static bool env_get_camera_interface(struct frontend_state *fe, void *data)
+{
+    (void)fe; (void)data;
+    return false;
+}
+
+static bool env_get_log_interface(struct frontend_state *fe, void *data)
+{
+    (void)fe;
+    if (!data) { LOG_WARN("env_get_log_interface: NULL data"); return false; }
+    struct retro_log_callback *cb = (struct retro_log_callback *)data;
+    cb->log = core_log_bridge;
+    return true;
+}
+
+static bool env_get_perf_interface(struct frontend_state *fe, void *data)
+{
+    (void)fe; (void)data;
+    return false;
+}
+
+static bool env_get_location_interface(struct frontend_state *fe, void *data)
+{
+    (void)fe; (void)data;
+    return false;
+}
+
+static bool env_get_save_directory(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_get_save_directory: NULL data"); return false; }
+    const char *dir = fe->save_directory
+                      ? fe->save_directory
+                      : fe->system_directory;
+    *(const char **)data = dir;
+    LOG_DEBUG("Core queried save directory: %s", dir ? dir : "(null)");
+    return true;
+}
+
+static bool env_set_geometry(struct frontend_state *fe, void *data)
+{
+    (void)fe;
+    if (!data) { LOG_WARN("env_set_geometry: NULL data"); return false; }
+    const struct retro_game_geometry *geo =
+        (const struct retro_game_geometry *)data;
+    video_update_geometry(geo->base_width, geo->base_height,
+                          geo->max_width, geo->max_height,
+                          geo->aspect_ratio);
+    return true;
+}
+
+static bool env_set_system_av_info(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_set_system_av_info: NULL data"); return false; }
+    const struct retro_system_av_info *av =
+        (const struct retro_system_av_info *)data;
+    g_av_info = *av;
+
+    if (fe->video.hw_render_enabled) {
+        video_resize(av->geometry.max_width, av->geometry.max_height);
+    }
+    return true;
+}
+
+static bool env_get_language(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_get_language: NULL data"); return false; }
+    *(enum retro_language *)data = fe->language;
+    return true;
+}
+
+static bool env_get_username(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_get_username: NULL data"); return false; }
+    *(const char **)data = fe->username;
+    return fe->username != NULL;
+}
+
+static bool env_get_disk_control_interface_version(struct frontend_state *fe, void *data)
+{
+    (void)fe;
+    if (!data) { LOG_WARN("env_get_disk_control_interface_version: NULL data"); return false; }
+    *(unsigned *)data = 1;
+    return true;
+}
+
+static bool env_get_input_max_users(struct frontend_state *fe, void *data)
+{
+    (void)fe;
+    if (!data) { LOG_WARN("env_get_input_max_users: NULL data"); return false; }
+    /* The frontend currently maps a single keyboard to port 0 only.
+     * Cores can use this to skip polling ports 1..N. */
+    *(unsigned *)data = 1;
+    return true;
+}
+
+static bool env_get_audio_video_enable(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_get_audio_video_enable: NULL data"); return false; }
+    /* libretro spec: bit0 = RETRO_AV_ENABLE_VIDEO (always on),
+     * bit1 = RETRO_AV_ENABLE_AUDIO (gated by --no-audio),
+     * bit2 = RETRO_AV_ENABLE_FAST_SAVESTATES (not used),
+     * bit3 = RETRO_AV_ENABLE_HARD_DISABLE_AUDIO (never set).
+     * Fast-forward state is reported via GET_FASTFORWARDING, not here. */
+    *(int *)data = RETRO_AV_ENABLE_VIDEO
+                   | (fe->no_audio ? 0 : RETRO_AV_ENABLE_AUDIO);
+    return true;
+}
+
+static bool env_get_target_sample_rate(struct frontend_state *fe, void *data)
+{
+    (void)fe;
+    if (!data) { LOG_WARN("env_get_target_sample_rate: NULL data"); return false; }
+    float rate = (g_av_info.timing.sample_rate > 0.0)
+                 ? (float)g_av_info.timing.sample_rate
+                 : (float)FRONTEND_AUDIO_SAMPLE_RATE;
+    *(float *)data = rate;
+    return true;
+}
+
+static bool env_set_audio_buffer_status_callback(struct frontend_state *fe, void *data)
+{
+    (void)fe;
+    /* data may be NULL to clear the callback; the environment call
+     * itself is still considered supported. */
+    const struct retro_audio_buffer_status_callback *cb =
+        (const struct retro_audio_buffer_status_callback *)data;
+    audio_set_buffer_status_callback(cb ? cb->callback : NULL);
+    LOG_INFO("Core %s audio buffer status callback",
+             cb && cb->callback ? "registered" : "unregistered");
+    return true;
+}
+
+static bool env_set_minimum_audio_latency(struct frontend_state *fe, void *data)
+{
+    (void)fe;
+    unsigned ms = (data) ? *(const unsigned *)data : 0;
+    audio_set_minimum_latency(ms);
+    LOG_INFO("Core requested minimum audio latency: %u ms", ms);
+    return true;
+}
+
+static bool env_get_fastforwarding(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_get_fastforwarding: NULL data"); return false; }
+    *(bool *)data = fe->fast_forward_active;
+    return true;
+}
+
+static bool env_get_target_refresh_rate(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_get_target_refresh_rate: NULL data"); return false; }
+    float rate = 60.0f;
+    SDL_Window *win = fe->video.window;
+    if (win) {
+        SDL_DisplayID disp = SDL_GetDisplayForWindow(win);
+        if (disp) {
+            const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(disp);
+            if (mode && mode->refresh_rate > 0.0f)
+                rate = mode->refresh_rate;
+        }
+    }
+    *(float *)data = rate;
+    return true;
+}
+
+static bool env_set_variable(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_set_variable: NULL data"); return false; }
+    const struct retro_variable *var = (const struct retro_variable *)data;
+    if (!var->key || !var->value)
+        return false;
+    if (!core_options_table_set_value(&fe->core_options,
+                                      var->key, var->value))
+        return false;
+    if (!variable_table_set(&fe->disk_overrides, var->key, var->value))
+        return false;
+    return true;
+}
+
+static bool env_set_hw_render_context_negotiation_interface(struct frontend_state *fe, void *data)
+{
+    (void)fe;
+    if (!data) { LOG_WARN("env_set_hw_render_context_negotiation_interface: NULL data"); return false; }
+    return video_negotiate_hw_context(
+        (const struct retro_hw_render_context_negotiation_interface *)data);
+}
+
+static bool env_get_hw_render_interface(struct frontend_state *fe, void *data)
+{
+    (void)fe;
+    if (!data) { LOG_WARN("env_get_hw_render_interface: NULL data"); return false; }
+    const struct retro_hw_render_interface **iface =
+        (const struct retro_hw_render_interface **)data;
+    if (!video_get_hw_render_interface(iface)) {
+        LOG_WARN("GET_HW_RENDER_INTERFACE: no interface for active backend");
+        return false;
+    }
+    LOG_INFO("GET_HW_RENDER_INTERFACE: returning %p",
+             (const void *)*iface);
+    return true;
+}
+
+static bool env_get_vfs_interface(struct frontend_state *fe, void *data)
+{
+    (void)fe;
+    if (!data) { LOG_WARN("env_get_vfs_interface: NULL data"); return false; }
+    struct retro_vfs_interface_info *info =
+        (struct retro_vfs_interface_info *)data;
+    if (info->required_interface_version > 1)
+        return false;
+    info->iface = vfs_get_interface();
+    info->required_interface_version = 1;
+    return true;
+}
+
+static bool env_get_core_options_version(struct frontend_state *fe, void *data)
+{
+    (void)fe;
+    if (!data) { LOG_WARN("env_get_core_options_version: NULL data"); return false; }
+    *(unsigned *)data = 2;
+    return true;
+}
+
+static bool env_set_core_options_update_display_callback(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_set_core_options_update_display_callback: NULL data"); return false; }
+    const struct retro_core_options_update_display_callback *cb =
+        (const struct retro_core_options_update_display_callback *)data;
+    fe->core_options_update_display_callback = cb->callback;
+    return true;
+}
+
+static bool env_get_hw_render_context_negotiation_interface_support(struct frontend_state *fe, void *data)
+{
+    (void)fe;
+    /* Cores poll this to discover which negotiation interface versions
+     * the frontend understands. We currently support the Vulkan
+     * negotiation interface (handled in video_negotiate_hw_context),
+     * which is the only enum value defined upstream. Return the highest
+     * interface_version the frontend recognises; other API types get 0. */
+    if (!data) { LOG_WARN("env_get_hw_render_context_negotiation_interface_support: NULL data"); return false; }
+    struct retro_hw_render_context_negotiation_interface *iface =
+        (struct retro_hw_render_context_negotiation_interface *)data;
+    if (iface->interface_type ==
+        RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN) {
+        iface->interface_version = 2;
+    } else {
+        iface->interface_version = 0;
+    }
+    return true;
+}
+
+static bool env_get_throttle_state(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_get_throttle_state: NULL data"); return false; }
+    struct retro_throttle_state *ts = (struct retro_throttle_state *)data;
+    if (fe->fast_forward_active) {
+        ts->mode = RETRO_THROTTLE_FAST_FORWARD;
+        ts->rate = 0.0f; /* unlimited */
+    } else {
+        ts->mode = RETRO_THROTTLE_NONE;
+        ts->rate = (g_av_info.timing.fps > 0.0)
+                   ? (float)g_av_info.timing.fps : 0.0f;
+    }
+    return true;
+}
+
+static bool env_get_savestate_context(struct frontend_state *fe, void *data)
+{
+    (void)fe;
+    if (!data) { LOG_WARN("env_get_savestate_context: NULL data"); return false; }
+    *(int *)data = RETRO_SAVESTATE_CONTEXT_NORMAL;
+    return true;
+}
+
+static bool env_get_jit_capable(struct frontend_state *fe, void *data)
+{
+    (void)fe;
+    if (!data) { LOG_WARN("env_get_jit_capable: NULL data"); return false; }
+    /* All three desktop targets (Linux/macOS/Windows) allow JIT. The
+     * libretro contract is "false only on locked-down platforms like
+     * iOS / non-jailbroken consoles", which we never run on. */
+    *(bool *)data = true;
+    return true;
+}
+
+static bool env_get_message_interface_version(struct frontend_state *fe, void *data)
+{
+    (void)fe;
+    if (!data) { LOG_WARN("env_get_message_interface_version: NULL data"); return false; }
+    *(unsigned *)data = 1;
+    return true;
+}
+
+static bool env_set_message_ext(struct frontend_state *fe, void *data)
+{
+    (void)fe;
+    if (!data) { LOG_WARN("env_set_message_ext: NULL data"); return false; }
+    const struct retro_message_ext *msg =
+        (const struct retro_message_ext *)data;
+    if (!msg->msg)
+        return false;
+    /* Route via the logger. TARGET_LOG uses the message's own level;
+     * TARGET_OSD / TARGET_ALL still go to the log since we have no GUI,
+     * but at INFO (so they remain visible without spamming DEBUG). */
+    enum log_level lvl;
+    if (msg->target == RETRO_MESSAGE_TARGET_LOG) {
+        switch (msg->level) {
+        case RETRO_LOG_DEBUG: lvl = LOG_LEVEL_DEBUG; break;
+        case RETRO_LOG_INFO:  lvl = LOG_LEVEL_INFO;  break;
+        case RETRO_LOG_WARN:  lvl = LOG_LEVEL_WARN;  break;
+        case RETRO_LOG_ERROR: lvl = LOG_LEVEL_ERROR; break;
+        default:              lvl = LOG_LEVEL_INFO;  break;
+        }
+    } else {
+        lvl = LOG_LEVEL_INFO;
+    }
+    log_emit(lvl, "CORE", NULL, 0, "%s", msg->msg);
+    return true;
+}
+
+static bool env_set_proc_address_callback(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_set_proc_address_callback: NULL data"); return false; }
+    const struct retro_get_proc_address_interface *iface =
+        (const struct retro_get_proc_address_interface *)data;
+    fe->get_proc_address = iface->get_proc_address;
+    LOG_INFO("Core registered get_proc_address interface (%p)",
+             (void *)(uintptr_t)iface->get_proc_address);
+    return true;
+}
+
+static bool env_set_support_achievements(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_set_support_achievements: NULL data"); return false; }
+    fe->core_supports_achievements = *(const bool *)data;
+    LOG_INFO("Core declares achievement support: %s",
+             fe->core_supports_achievements ? "yes" : "no");
+    return true;
+}
+
+static bool env_set_fastforwarding_override(struct frontend_state *fe, void *data)
+{
+    /* NULL data is a support probe per the libretro contract. */
+    if (!data) {
+        LOG_DEBUG("Core probed SET_FASTFORWARDING_OVERRIDE support");
+        return true;
+    }
+    const struct retro_fastforwarding_override *ov =
+        (const struct retro_fastforwarding_override *)data;
+    fe->ff_override_active = ov->fastforward;
+    fe->ff_inhibit_toggle  = ov->inhibit_toggle;
+    fe->fast_forward_active = ov->fastforward;
+    LOG_INFO("Core fast-forward override: active=%s ratio=%.2f "
+             "notification=%s inhibit_toggle=%s",
+             ov->fastforward ? "yes" : "no",
+             ov->ratio,
+             ov->notification ? "yes" : "no",
+             ov->inhibit_toggle ? "yes" : "no");
+    return true;
+}
+
+static bool env_get_game_info_ext(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_get_game_info_ext: NULL data"); return false; }
+    /* libretro contract: only valid inside retro_load_game[_special]. */
+    if (!fe->rom_data && !fe->game_info_ext.full_path) {
+        LOG_WARN("GET_GAME_INFO_EXT called outside retro_load_game");
+        return false;
+    }
+    const struct retro_game_info_ext **out =
+        (const struct retro_game_info_ext **)data;
+    *out = &fe->game_info_ext;
+    return true;
+}
+
+static bool env_get_current_software_framebuffer(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_get_current_software_framebuffer: NULL data"); return false; }
+    struct retro_framebuffer *fb = (struct retro_framebuffer *)data;
+    if (fb->width == 0 || fb->height == 0)
+        return false;
+
+    /* Only honour the request when the core wants to write the buffer.
+     * Read-only access would require a different mapping (we never
+     * read back from the texture), so decline cleanly in that case. */
+    if (!(fb->access_flags & RETRO_MEMORY_ACCESS_WRITE))
+        return false;
+
+    void *pixels = NULL;
+    size_t pitch = 0;
+    if (!video_get_software_framebuffer(fb->width, fb->height,
+                                        fe->video.pixel_format,
+                                        &pixels, &pitch))
+        return false;
+
+    fb->data = pixels;
+    fb->pitch = pitch;
+    fb->format = fe->video.pixel_format;
+    fb->memory_flags = 0;
+    return true;
+}
+
 static const struct env_handler_entry g_env_table[] = {
     /* Trivial getters / setters migrated in R1a. Remaining handlers are
      * still served by the legacy switch below; R1b/R1c will migrate them. */
@@ -971,6 +1507,52 @@ static const struct env_handler_entry g_env_table[] = {
     { RETRO_ENVIRONMENT_GET_FILE_BROWSER_START_DIRECTORY, "GET_FILE_BROWSER_START_DIRECTORY", env_get_file_browser_start_directory },
     { RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME,              "SET_SUPPORT_NO_GAME",              env_set_support_no_game              },
     { RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS,            "SET_INPUT_DESCRIPTORS",            env_set_input_descriptors            },
+    { RETRO_ENVIRONMENT_SET_ROTATION,                                          "SET_ROTATION",                                          env_set_rotation                                          },
+    { RETRO_ENVIRONMENT_SET_PIXEL_FORMAT,                                      "SET_PIXEL_FORMAT",                                      env_set_pixel_format                                      },
+    { RETRO_ENVIRONMENT_SET_KEYBOARD_CALLBACK,                                 "SET_KEYBOARD_CALLBACK",                                 env_set_keyboard_callback                                 },
+    { RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE,                            "SET_DISK_CONTROL_INTERFACE",                            env_set_disk_control_interface                            },
+    { RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER,                               "GET_PREFERRED_HW_RENDER",                               env_get_preferred_hw_render                               },
+    { RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE,                                   "GET_VARIABLE_UPDATE",                                   env_get_variable_update                                   },
+    { RETRO_ENVIRONMENT_SET_FRAME_TIME_CALLBACK,                               "SET_FRAME_TIME_CALLBACK",                               env_set_frame_time_callback                               },
+    { RETRO_ENVIRONMENT_SET_AUDIO_CALLBACK,                                    "SET_AUDIO_CALLBACK",                                    env_set_audio_callback                                    },
+    { RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE,                                  "GET_RUMBLE_INTERFACE",                                  env_get_rumble_interface                                  },
+    { RETRO_ENVIRONMENT_GET_INPUT_BITMASKS,                                    "GET_INPUT_BITMASKS",                                    env_get_input_bitmasks                                    },
+    { RETRO_ENVIRONMENT_GET_INPUT_DEVICE_CAPABILITIES,                         "GET_INPUT_DEVICE_CAPABILITIES",                         env_get_input_device_capabilities                         },
+    { RETRO_ENVIRONMENT_GET_SENSOR_INTERFACE,                                  "GET_SENSOR_INTERFACE",                                  env_get_sensor_interface                                  },
+    { RETRO_ENVIRONMENT_GET_CAMERA_INTERFACE,                                  "GET_CAMERA_INTERFACE",                                  env_get_camera_interface                                  },
+    { RETRO_ENVIRONMENT_GET_LOG_INTERFACE,                                     "GET_LOG_INTERFACE",                                     env_get_log_interface                                     },
+    { RETRO_ENVIRONMENT_GET_PERF_INTERFACE,                                    "GET_PERF_INTERFACE",                                    env_get_perf_interface                                    },
+    { RETRO_ENVIRONMENT_GET_LOCATION_INTERFACE,                                "GET_LOCATION_INTERFACE",                                env_get_location_interface                                },
+    { RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY,                                    "GET_SAVE_DIRECTORY",                                    env_get_save_directory                                    },
+    { RETRO_ENVIRONMENT_SET_GEOMETRY,                                          "SET_GEOMETRY",                                          env_set_geometry                                          },
+    { RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO,                                    "SET_SYSTEM_AV_INFO",                                    env_set_system_av_info                                    },
+    { RETRO_ENVIRONMENT_GET_LANGUAGE,                                          "GET_LANGUAGE",                                          env_get_language                                          },
+    { RETRO_ENVIRONMENT_GET_USERNAME,                                          "GET_USERNAME",                                          env_get_username                                          },
+    { RETRO_ENVIRONMENT_GET_DISK_CONTROL_INTERFACE_VERSION,                    "GET_DISK_CONTROL_INTERFACE_VERSION",                    env_get_disk_control_interface_version                    },
+    { RETRO_ENVIRONMENT_GET_INPUT_MAX_USERS,                                   "GET_INPUT_MAX_USERS",                                   env_get_input_max_users                                   },
+    { RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE,                                "GET_AUDIO_VIDEO_ENABLE",                                env_get_audio_video_enable                                },
+    { RETRO_ENVIRONMENT_GET_TARGET_SAMPLE_RATE,                                "GET_TARGET_SAMPLE_RATE",                                env_get_target_sample_rate                                },
+    { RETRO_ENVIRONMENT_SET_AUDIO_BUFFER_STATUS_CALLBACK,                      "SET_AUDIO_BUFFER_STATUS_CALLBACK",                      env_set_audio_buffer_status_callback                      },
+    { RETRO_ENVIRONMENT_SET_MINIMUM_AUDIO_LATENCY,                             "SET_MINIMUM_AUDIO_LATENCY",                             env_set_minimum_audio_latency                             },
+    { RETRO_ENVIRONMENT_GET_FASTFORWARDING,                                    "GET_FASTFORWARDING",                                    env_get_fastforwarding                                    },
+    { RETRO_ENVIRONMENT_GET_TARGET_REFRESH_RATE,                               "GET_TARGET_REFRESH_RATE",                               env_get_target_refresh_rate                               },
+    { RETRO_ENVIRONMENT_SET_VARIABLE,                                          "SET_VARIABLE",                                          env_set_variable                                          },
+    { RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE,           "SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE",           env_set_hw_render_context_negotiation_interface           },
+    { RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE,                               "GET_HW_RENDER_INTERFACE",                               env_get_hw_render_interface                               },
+    { RETRO_ENVIRONMENT_GET_VFS_INTERFACE,                                     "GET_VFS_INTERFACE",                                     env_get_vfs_interface                                     },
+    { RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION,                              "GET_CORE_OPTIONS_VERSION",                              env_get_core_options_version                              },
+    { RETRO_ENVIRONMENT_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK,              "SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK",              env_set_core_options_update_display_callback              },
+    { RETRO_ENVIRONMENT_GET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_SUPPORT,   "GET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_SUPPORT",   env_get_hw_render_context_negotiation_interface_support   },
+    { RETRO_ENVIRONMENT_GET_THROTTLE_STATE,                                    "GET_THROTTLE_STATE",                                    env_get_throttle_state                                    },
+    { RETRO_ENVIRONMENT_GET_SAVESTATE_CONTEXT,                                 "GET_SAVESTATE_CONTEXT",                                 env_get_savestate_context                                 },
+    { RETRO_ENVIRONMENT_GET_JIT_CAPABLE,                                       "GET_JIT_CAPABLE",                                       env_get_jit_capable                                       },
+    { RETRO_ENVIRONMENT_GET_MESSAGE_INTERFACE_VERSION,                         "GET_MESSAGE_INTERFACE_VERSION",                         env_get_message_interface_version                         },
+    { RETRO_ENVIRONMENT_SET_MESSAGE_EXT,                                       "SET_MESSAGE_EXT",                                       env_set_message_ext                                       },
+    { RETRO_ENVIRONMENT_SET_PROC_ADDRESS_CALLBACK,                             "SET_PROC_ADDRESS_CALLBACK",                             env_set_proc_address_callback                             },
+    { RETRO_ENVIRONMENT_SET_SUPPORT_ACHIEVEMENTS,                              "SET_SUPPORT_ACHIEVEMENTS",                              env_set_support_achievements                              },
+    { RETRO_ENVIRONMENT_SET_FASTFORWARDING_OVERRIDE,                           "SET_FASTFORWARDING_OVERRIDE",                           env_set_fastforwarding_override                           },
+    { RETRO_ENVIRONMENT_GET_GAME_INFO_EXT,                                     "GET_GAME_INFO_EXT",                                     env_get_game_info_ext                                     },
+    { RETRO_ENVIRONMENT_GET_CURRENT_SOFTWARE_FRAMEBUFFER,                      "GET_CURRENT_SOFTWARE_FRAMEBUFFER",                      env_get_current_software_framebuffer                      },
 };
 
 static const struct env_handler_entry *env_table_lookup(unsigned cmd)
@@ -1009,21 +1591,6 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
     cmd &= ~RETRO_ENVIRONMENT_EXPERIMENTAL;
 
     switch (cmd) {
-    case RETRO_ENVIRONMENT_SET_ROTATION: {
-        if (!require_data(cmd, data))
-            return false;
-        unsigned rot = *(const unsigned *)data;
-        if (rot > 3) {
-            LOG_WARN("SET_ROTATION: ignoring invalid rotation %u (expected 0-3)",
-                     rot);
-            return false;
-        }
-        g_frontend.video.rotation = rot;
-        LOG_INFO("Core requested rotation: %u (%u degrees CCW)",
-                 rot, rot * 90);
-        return true;
-    }
-
     case RETRO_ENVIRONMENT_GET_OVERSCAN:
         /* Default: no overscan */
         if (!require_data(cmd, data))
@@ -1065,76 +1632,13 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
                   g_frontend.system_directory ? g_frontend.system_directory : "(null)");
         return true;
 
-    case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT: {
-        if (!require_data(cmd, data))
-            return false;
-        enum retro_pixel_format fmt = *(const enum retro_pixel_format *)data;
-        const char *fmt_name = "unknown";
-        switch (fmt) {
-        case RETRO_PIXEL_FORMAT_0RGB1555: fmt_name = "0RGB1555"; break;
-        case RETRO_PIXEL_FORMAT_XRGB8888: fmt_name = "XRGB8888"; break;
-        case RETRO_PIXEL_FORMAT_RGB565:   fmt_name = "RGB565";   break;
-        case RETRO_PIXEL_FORMAT_UNKNOWN:  fmt_name = "UNKNOWN";  break;
-        }
-        LOG_INFO("Core requested pixel format: %s (%d)", fmt_name, (int)fmt);
-        /* Accept all formats. The software renderer will handle whatever the
-         * core sends. Returning false here causes cores like Beetle PSX HW
-         * to skip SET_HW_RENDER entirely and fall back to software. */
-        g_frontend.video.pixel_format = fmt;
-        return true;
-    }
-
     case RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS:
         return false;
-
-    case RETRO_ENVIRONMENT_SET_KEYBOARD_CALLBACK: {
-        if (!require_data(cmd, data))
-            return false;
-        const struct retro_keyboard_callback *cb =
-            (const struct retro_keyboard_callback *)data;
-        g_frontend.keyboard_callback = *cb;
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE: {
-        if (!require_data(cmd, data))
-            return false;
-        const struct retro_disk_control_callback *legacy =
-            (const struct retro_disk_control_callback *)data;
-        /* The legacy struct's first 7 fields are layout-identical to the
-         * ext struct. memcpy those and leave the ext-only fields NULL
-         * (memset guarantees set_initial_image/get_image_path/get_image_label). */
-        memset(&g_frontend.disk_control, 0,
-               sizeof(g_frontend.disk_control));
-        memcpy(&g_frontend.disk_control, legacy,
-               sizeof(struct retro_disk_control_callback));
-        g_frontend.has_disk_control = true;
-        LOG_INFO("Core registered legacy disk control interface");
-        disk_control_apply_initial_index();
-        return true;
-    }
 
     case RETRO_ENVIRONMENT_SET_HW_RENDER:
         if (!require_data(cmd, data))
             return false;
         return video_set_hw_render((struct retro_hw_render_callback *)data);
-
-    case RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER: {
-        if (!require_data(cmd, data))
-            return false;
-        int *preferred = (int *)data;
-        bool result;
-        switch (g_frontend.preferred_renderer) {
-        case VIDEO_RENDERER_VULKAN: *preferred = RETRO_HW_CONTEXT_VULKAN;     result = true; break;
-        case VIDEO_RENDERER_OPENGL: *preferred = RETRO_HW_CONTEXT_OPENGL_CORE; result = true; break;
-        case VIDEO_RENDERER_SW:     *preferred = RETRO_HW_CONTEXT_NONE;       result = true; break;
-        case VIDEO_RENDERER_NONE:
-        default:                    result = false; break;
-        }
-        LOG_DEBUG("Core queried preferred HW render: %s (context=%d)",
-                  result ? "yes" : "no (no preference)", *preferred);
-        return result;
-    }
 
     case RETRO_ENVIRONMENT_GET_VARIABLE: {
         if (!require_data(cmd, data))
@@ -1247,12 +1751,6 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         return ok;
     }
 
-    case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE:
-        if (!require_data(cmd, data))
-            return false;
-        *(bool *)data = false;
-        return true;
-
     case RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME:
         return true;
 
@@ -1261,56 +1759,6 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
             return false;
         *(const char **)data = g_frontend.core_path;
         return true;
-
-    case RETRO_ENVIRONMENT_SET_FRAME_TIME_CALLBACK: {
-        if (!require_data(cmd, data))
-            return false;
-        const struct retro_frame_time_callback *cb =
-            (const struct retro_frame_time_callback *)data;
-        g_frontend.frame_time_callback = cb->callback;
-        g_frontend.frame_time_reference = cb->reference;
-        LOG_INFO("Core registered frame-time callback (reference=%lld us)",
-                 (long long)cb->reference);
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_SET_AUDIO_CALLBACK:
-        return false;
-
-    case RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE:
-        return false;
-
-    case RETRO_ENVIRONMENT_GET_INPUT_BITMASKS & ~RETRO_ENVIRONMENT_EXPERIMENTAL:
-        if (!require_data(cmd, data))
-            return false;
-        *(bool *)data = true;
-        return true;
-
-    case RETRO_ENVIRONMENT_GET_INPUT_DEVICE_CAPABILITIES:
-        if (!require_data(cmd, data))
-            return false;
-        *(uint64_t *)data = (1 << RETRO_DEVICE_JOYPAD);
-        return true;
-
-    case RETRO_ENVIRONMENT_GET_SENSOR_INTERFACE & ~RETRO_ENVIRONMENT_EXPERIMENTAL:
-        return false;
-
-    case RETRO_ENVIRONMENT_GET_CAMERA_INTERFACE & ~RETRO_ENVIRONMENT_EXPERIMENTAL:
-        return false;
-
-    case RETRO_ENVIRONMENT_GET_LOG_INTERFACE: {
-        if (!require_data(cmd, data))
-            return false;
-        struct retro_log_callback *cb = (struct retro_log_callback *)data;
-        cb->log = core_log_bridge;
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_GET_PERF_INTERFACE:
-        return false;
-
-    case RETRO_ENVIRONMENT_GET_LOCATION_INTERFACE:
-        return false;
 
     case RETRO_ENVIRONMENT_GET_CORE_ASSETS_DIRECTORY:
         if (!require_data(cmd, data))
@@ -1329,52 +1777,6 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
             return false;
         *(const char **)data = g_frontend.file_browser_directory;
         return true;
-
-    case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY:
-        if (!require_data(cmd, data))
-            return false;
-        const char *dir = g_frontend.save_directory
-                          ? g_frontend.save_directory
-                          : g_frontend.system_directory;
-        *(const char **)data = dir;
-        LOG_DEBUG("Core queried save directory: %s", dir ? dir : "(null)");
-        return true;
-
-    case RETRO_ENVIRONMENT_SET_GEOMETRY: {
-        if (!require_data(cmd, data))
-            return false;
-        const struct retro_game_geometry *geo =
-            (const struct retro_game_geometry *)data;
-        video_update_geometry(geo->base_width, geo->base_height,
-                              geo->max_width, geo->max_height,
-                              geo->aspect_ratio);
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO: {
-        if (!require_data(cmd, data))
-            return false;
-        const struct retro_system_av_info *av =
-            (const struct retro_system_av_info *)data;
-        g_av_info = *av;
-
-        if (g_frontend.video.hw_render_enabled) {
-            video_resize(av->geometry.max_width, av->geometry.max_height);
-        }
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_GET_LANGUAGE:
-        if (!require_data(cmd, data))
-            return false;
-        *(enum retro_language *)data = g_frontend.language;
-        return true;
-
-    case RETRO_ENVIRONMENT_GET_USERNAME:
-        if (!require_data(cmd, data))
-            return false;
-        *(const char **)data = g_frontend.username;
-        return g_frontend.username != NULL;
 
     case RETRO_ENVIRONMENT_SET_CONTROLLER_INFO: {
         if (!require_data(cmd, data))
@@ -1423,12 +1825,6 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         return true;
     }
 
-    case RETRO_ENVIRONMENT_GET_DISK_CONTROL_INTERFACE_VERSION:
-        if (!require_data(cmd, data))
-            return false;
-        *(unsigned *)data = 1;
-        return true;
-
     case RETRO_ENVIRONMENT_SET_DISK_CONTROL_EXT_INTERFACE: {
         if (!require_data(cmd, data))
             return false;
@@ -1439,104 +1835,6 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         LOG_INFO("Core registered disk control ext interface (num_images=%u)",
                  cb->get_num_images ? cb->get_num_images() : 0);
         disk_control_apply_initial_index();
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_GET_CURRENT_SOFTWARE_FRAMEBUFFER & ~RETRO_ENVIRONMENT_EXPERIMENTAL: {
-        if (!require_data(cmd, data))
-            return false;
-        struct retro_framebuffer *fb = (struct retro_framebuffer *)data;
-        if (fb->width == 0 || fb->height == 0)
-            return false;
-
-        /* Only honour the request when the core wants to write the buffer.
-         * Read-only access would require a different mapping (we never
-         * read back from the texture), so decline cleanly in that case. */
-        if (!(fb->access_flags & RETRO_MEMORY_ACCESS_WRITE))
-            return false;
-
-        void *pixels = NULL;
-        size_t pitch = 0;
-        if (!video_get_software_framebuffer(fb->width, fb->height,
-                                            g_frontend.video.pixel_format,
-                                            &pixels, &pitch))
-            return false;
-
-        fb->data = pixels;
-        fb->pitch = pitch;
-        fb->format = g_frontend.video.pixel_format;
-        fb->memory_flags = 0;
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE & ~RETRO_ENVIRONMENT_EXPERIMENTAL:
-        if (!require_data(cmd, data))
-            return false;
-        /* libretro spec: bit0 = RETRO_AV_ENABLE_VIDEO (always on),
-         * bit1 = RETRO_AV_ENABLE_AUDIO (gated by --no-audio),
-         * bit2 = RETRO_AV_ENABLE_FAST_SAVESTATES (not used),
-         * bit3 = RETRO_AV_ENABLE_HARD_DISABLE_AUDIO (never set).
-         * Fast-forward state is reported via GET_FASTFORWARDING, not here. */
-        *(int *)data = RETRO_AV_ENABLE_VIDEO
-                       | (g_frontend.no_audio ? 0 : RETRO_AV_ENABLE_AUDIO);
-        return true;
-
-    case RETRO_ENVIRONMENT_GET_INPUT_MAX_USERS:
-        if (!require_data(cmd, data))
-            return false;
-        /* The frontend currently maps a single keyboard to port 0 only.
-         * Cores can use this to skip polling ports 1..N. */
-        *(unsigned *)data = 1;
-        return true;
-
-    case RETRO_ENVIRONMENT_GET_TARGET_SAMPLE_RATE & ~RETRO_ENVIRONMENT_EXPERIMENTAL: {
-        if (!require_data(cmd, data))
-            return false;
-        float rate = (g_av_info.timing.sample_rate > 0.0)
-                     ? (float)g_av_info.timing.sample_rate
-                     : (float)FRONTEND_AUDIO_SAMPLE_RATE;
-        *(float *)data = rate;
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_SET_AUDIO_BUFFER_STATUS_CALLBACK: {
-        /* data may be NULL to clear the callback; the environment call
-         * itself is still considered supported. */
-        const struct retro_audio_buffer_status_callback *cb =
-            (const struct retro_audio_buffer_status_callback *)data;
-        audio_set_buffer_status_callback(cb ? cb->callback : NULL);
-        LOG_INFO("Core %s audio buffer status callback",
-                 cb && cb->callback ? "registered" : "unregistered");
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_SET_MINIMUM_AUDIO_LATENCY: {
-        unsigned ms = (data) ? *(const unsigned *)data : 0;
-        audio_set_minimum_latency(ms);
-        LOG_INFO("Core requested minimum audio latency: %u ms", ms);
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_GET_FASTFORWARDING & ~RETRO_ENVIRONMENT_EXPERIMENTAL:
-        if (!require_data(cmd, data))
-            return false;
-        *(bool *)data = g_frontend.fast_forward_active;
-        return true;
-
-    case RETRO_ENVIRONMENT_GET_TARGET_REFRESH_RATE & ~RETRO_ENVIRONMENT_EXPERIMENTAL: {
-        if (!require_data(cmd, data))
-            return false;
-        float rate = 60.0f;
-        SDL_Window *win = g_frontend.video.window;
-        if (win) {
-            SDL_DisplayID disp = SDL_GetDisplayForWindow(win);
-            if (disp) {
-                const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(disp);
-                if (mode && mode->refresh_rate > 0.0f)
-                    rate = mode->refresh_rate;
-            }
-        }
-        *(float *)data = rate;
         return true;
     }
 
@@ -1556,58 +1854,6 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         }
         return true;
     }
-
-    case RETRO_ENVIRONMENT_SET_VARIABLE: {
-        if (!require_data(cmd, data))
-            return false;
-        const struct retro_variable *var = (const struct retro_variable *)data;
-        if (!var->key || !var->value)
-            return false;
-        if (!core_options_table_set_value(&g_frontend.core_options,
-                                          var->key, var->value))
-            return false;
-        if (!variable_table_set(&g_frontend.disk_overrides, var->key, var->value))
-            return false;
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE & ~RETRO_ENVIRONMENT_EXPERIMENTAL:
-        if (!require_data(cmd, data))
-            return false;
-        return video_negotiate_hw_context(
-            (const struct retro_hw_render_context_negotiation_interface *)data);
-
-    case RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE & ~RETRO_ENVIRONMENT_EXPERIMENTAL: {
-        if (!require_data(cmd, data))
-            return false;
-        const struct retro_hw_render_interface **iface =
-            (const struct retro_hw_render_interface **)data;
-        if (!video_get_hw_render_interface(iface)) {
-            LOG_WARN("GET_HW_RENDER_INTERFACE: no interface for active backend");
-            return false;
-        }
-        LOG_INFO("GET_HW_RENDER_INTERFACE: returning %p",
-                 (const void *)*iface);
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_GET_VFS_INTERFACE & ~RETRO_ENVIRONMENT_EXPERIMENTAL: {
-        if (!require_data(cmd, data))
-            return false;
-        struct retro_vfs_interface_info *info =
-            (struct retro_vfs_interface_info *)data;
-        if (info->required_interface_version > 1)
-            return false;
-        info->iface = vfs_get_interface();
-        info->required_interface_version = 1;
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION:
-        if (!require_data(cmd, data))
-            return false;
-        *(unsigned *)data = 2;
-        return true;
 
     case RETRO_ENVIRONMENT_SET_CORE_OPTIONS: {
         if (!require_data(cmd, data))
@@ -1685,97 +1931,6 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         return true;
     }
 
-    case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK: {
-        if (!require_data(cmd, data))
-            return false;
-        const struct retro_core_options_update_display_callback *cb =
-            (const struct retro_core_options_update_display_callback *)data;
-        g_frontend.core_options_update_display_callback = cb->callback;
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_GET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_SUPPORT
-         & ~RETRO_ENVIRONMENT_EXPERIMENTAL: {
-        /* Cores poll this to discover which negotiation interface versions
-         * the frontend understands. We currently support the Vulkan
-         * negotiation interface (handled in video_negotiate_hw_context),
-         * which is the only enum value defined upstream. Return the highest
-         * interface_version the frontend recognises; other API types get 0. */
-        if (!require_data(cmd, data))
-            return false;
-        struct retro_hw_render_context_negotiation_interface *iface =
-            (struct retro_hw_render_context_negotiation_interface *)data;
-        if (iface->interface_type ==
-            RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN) {
-            iface->interface_version = 2;
-        } else {
-            iface->interface_version = 0;
-        }
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_GET_THROTTLE_STATE & ~RETRO_ENVIRONMENT_EXPERIMENTAL: {
-        if (!require_data(cmd, data))
-            return false;
-        struct retro_throttle_state *ts = (struct retro_throttle_state *)data;
-        if (g_frontend.fast_forward_active) {
-            ts->mode = RETRO_THROTTLE_FAST_FORWARD;
-            ts->rate = 0.0f; /* unlimited */
-        } else {
-            ts->mode = RETRO_THROTTLE_NONE;
-            ts->rate = (g_av_info.timing.fps > 0.0)
-                       ? (float)g_av_info.timing.fps : 0.0f;
-        }
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_GET_SAVESTATE_CONTEXT & ~RETRO_ENVIRONMENT_EXPERIMENTAL:
-        if (!require_data(cmd, data))
-            return false;
-        *(int *)data = RETRO_SAVESTATE_CONTEXT_NORMAL;
-        return true;
-
-    case RETRO_ENVIRONMENT_GET_JIT_CAPABLE:
-        if (!require_data(cmd, data))
-            return false;
-        /* All three desktop targets (Linux/macOS/Windows) allow JIT. The
-         * libretro contract is "false only on locked-down platforms like
-         * iOS / non-jailbroken consoles", which we never run on. */
-        *(bool *)data = true;
-        return true;
-
-    case RETRO_ENVIRONMENT_GET_MESSAGE_INTERFACE_VERSION:
-        if (!require_data(cmd, data))
-            return false;
-        *(unsigned *)data = 1;
-        return true;
-
-    case RETRO_ENVIRONMENT_SET_MESSAGE_EXT: {
-        if (!require_data(cmd, data))
-            return false;
-        const struct retro_message_ext *msg =
-            (const struct retro_message_ext *)data;
-        if (!msg->msg)
-            return false;
-        /* Route via the logger. TARGET_LOG uses the message's own level;
-         * TARGET_OSD / TARGET_ALL still go to the log since we have no GUI,
-         * but at INFO (so they remain visible without spamming DEBUG). */
-        enum log_level lvl;
-        if (msg->target == RETRO_MESSAGE_TARGET_LOG) {
-            switch (msg->level) {
-            case RETRO_LOG_DEBUG: lvl = LOG_LEVEL_DEBUG; break;
-            case RETRO_LOG_INFO:  lvl = LOG_LEVEL_INFO;  break;
-            case RETRO_LOG_WARN:  lvl = LOG_LEVEL_WARN;  break;
-            case RETRO_LOG_ERROR: lvl = LOG_LEVEL_ERROR; break;
-            default:              lvl = LOG_LEVEL_INFO;  break;
-            }
-        } else {
-            lvl = LOG_LEVEL_INFO;
-        }
-        log_emit(lvl, "CORE", NULL, 0, "%s", msg->msg);
-        return true;
-    }
-
     case RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS: {
         /* Note: SET_HW_SHARED_CONTEXT is (44 | EXPERIMENTAL), which collapses
          * to the same case-value after we strip the experimental flag. The
@@ -1795,27 +1950,6 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
          * savestate misbehavior is easier to attribute. */
         LOG_INFO("Core serialization quirks: 0x%llx",
                  (unsigned long long)*quirks);
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_SET_SUPPORT_ACHIEVEMENTS
-         & ~RETRO_ENVIRONMENT_EXPERIMENTAL: {
-        if (!require_data(cmd, data))
-            return false;
-        g_frontend.core_supports_achievements = *(const bool *)data;
-        LOG_INFO("Core declares achievement support: %s",
-                 g_frontend.core_supports_achievements ? "yes" : "no");
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_SET_PROC_ADDRESS_CALLBACK: {
-        if (!require_data(cmd, data))
-            return false;
-        const struct retro_get_proc_address_interface *iface =
-            (const struct retro_get_proc_address_interface *)data;
-        g_frontend.get_proc_address = iface->get_proc_address;
-        LOG_INFO("Core registered get_proc_address interface (%p)",
-                 (void *)(uintptr_t)iface->get_proc_address);
         return true;
     }
 
@@ -1945,26 +2079,6 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         return true;
     }
 
-    case RETRO_ENVIRONMENT_SET_FASTFORWARDING_OVERRIDE: {
-        /* NULL data is a support probe per the libretro contract. */
-        if (!data) {
-            LOG_DEBUG("Core probed SET_FASTFORWARDING_OVERRIDE support");
-            return true;
-        }
-        const struct retro_fastforwarding_override *ov =
-            (const struct retro_fastforwarding_override *)data;
-        g_frontend.ff_override_active = ov->fastforward;
-        g_frontend.ff_inhibit_toggle  = ov->inhibit_toggle;
-        g_frontend.fast_forward_active = ov->fastforward;
-        LOG_INFO("Core fast-forward override: active=%s ratio=%.2f "
-                 "notification=%s inhibit_toggle=%s",
-                 ov->fastforward ? "yes" : "no",
-                 ov->ratio,
-                 ov->notification ? "yes" : "no",
-                 ov->inhibit_toggle ? "yes" : "no");
-        return true;
-    }
-
     case RETRO_ENVIRONMENT_SET_CONTENT_INFO_OVERRIDE: {
         content_overrides_clear();
         /* NULL data is a support probe per the libretro contract. */
@@ -2001,20 +2115,6 @@ bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
         LOG_INFO("Core registered %u content info override(s); frontend keeps "
                  "ROM data alive until shutdown regardless of persistent_data",
                  count);
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_GET_GAME_INFO_EXT: {
-        if (!require_data(cmd, data))
-            return false;
-        /* libretro contract: only valid inside retro_load_game[_special]. */
-        if (!g_frontend.rom_data && !g_frontend.game_info_ext.full_path) {
-            LOG_WARN("GET_GAME_INFO_EXT called outside retro_load_game");
-            return false;
-        }
-        const struct retro_game_info_ext **out =
-            (const struct retro_game_info_ext **)data;
-        *out = &g_frontend.game_info_ext;
         return true;
     }
 
