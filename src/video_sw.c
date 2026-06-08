@@ -148,8 +148,16 @@ void video_sw_present(struct video_sw_context *ctx, const void *data,
     int win_w, win_h;
     SDL_GetRenderOutputSize(ctx->renderer, &win_w, &win_h);
 
+    /* Honor the rotation requested by the core via SET_ROTATION.
+     * For 90/270 the source aspect is effectively swapped, so fit_aspect
+     * sees swapped dimensions. SDL_RenderTextureRotated then rotates
+     * the texture by `angle` degrees clockwise around the dst center. */
+    unsigned rot = g_frontend.video.rotation & 3;
+    unsigned eff_w = (rot == 1 || rot == 3) ? height : width;
+    unsigned eff_h = (rot == 1 || rot == 3) ? width  : height;
+
     int dst_x, dst_y, dst_w, dst_h;
-    fit_aspect(width, height, win_w, win_h, &dst_x, &dst_y, &dst_w, &dst_h);
+    fit_aspect(eff_w, eff_h, win_w, win_h, &dst_x, &dst_y, &dst_w, &dst_h);
 
     SDL_FRect dst;
     dst.x = (float)dst_x;
@@ -157,7 +165,24 @@ void video_sw_present(struct video_sw_context *ctx, const void *data,
     dst.w = (float)dst_w;
     dst.h = (float)dst_h;
 
-    SDL_RenderTexture(ctx->renderer, ctx->texture, NULL, &dst);
+    if (rot == 0) {
+        SDL_RenderTexture(ctx->renderer, ctx->texture, NULL, &dst);
+    } else {
+        /* For 90/270 the dst rect we feed RenderTextureRotated must be the
+         * post-rotation footprint expressed with the ORIGINAL aspect, since
+         * SDL rotates the *texture* into that rect. Swap back for the call. */
+        SDL_FRect tex_dst = dst;
+        if (rot == 1 || rot == 3) {
+            tex_dst.x = (float)(dst_x + (dst_w - dst_h) / 2);
+            tex_dst.y = (float)(dst_y + (dst_h - dst_w) / 2);
+            tex_dst.w = (float)dst_h;
+            tex_dst.h = (float)dst_w;
+        }
+        /* SDL angles are clockwise; libretro rotation=1 is CCW (270 CW) */
+        static const double rot_deg[4] = { 0.0, 270.0, 180.0, 90.0 };
+        SDL_RenderTextureRotated(ctx->renderer, ctx->texture, NULL, &tex_dst,
+                                 rot_deg[rot], NULL, SDL_FLIP_NONE);
+    }
     SDL_RenderPresent(ctx->renderer);
 }
 

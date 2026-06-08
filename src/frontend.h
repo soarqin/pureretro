@@ -65,6 +65,12 @@ struct video_state
      * Honored when creating the next GL context by setting
      * SDL_GL_SHARE_WITH_CURRENT_CONTEXT. Has no effect on Vulkan/software. */
     bool hw_shared_context_requested;
+
+    /* Screen rotation requested by the core via SET_ROTATION.
+     * Values are 0..3 representing 0/90/180/270-degree clockwise rotation.
+     * Applied at present time by each renderer (SW: SDL_RenderTextureRotated;
+     * GL: swap blit corners; VK: rotate blit destination corners). */
+    unsigned rotation;
 };
 
 /* Maximum number of input ports we track controller info for.
@@ -258,6 +264,24 @@ struct frontend_state
     char *game_info_ext_dir;
     char *game_info_ext_name;
     char *game_info_ext_ext;
+
+    /* Frame-time callback (SET_FRAME_TIME_CALLBACK).
+     * If callback is non-NULL, run_loop invokes it once per frame before
+     * retro_run() with the actual microseconds since the previous call,
+     * or `reference` on the first frame. */
+    retro_frame_time_callback_t frame_time_callback;
+    retro_usec_t frame_time_reference;
+
+    /* SRAM persistence path (.srm file).
+     * Computed once in main() from save_directory + content basename.
+     * On startup, contents are loaded into RETRO_MEMORY_SAVE_RAM.
+     * On shutdown, the current SRAM is written back. NULL when content
+     * is absent or save_directory cannot be resolved. Owned by frontend. */
+    char *sram_path;
+
+    /* Savestate auto-load path passed via --savestate <file>.
+     * Loaded once after core_init via retro_unserialize. Not owned. */
+    const char *savestate_load_path;
 };
 
 extern struct frontend_state g_frontend;

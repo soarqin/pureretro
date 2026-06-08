@@ -27,6 +27,7 @@ struct core_option {
     char **values;       /* NULL-terminated array */
     char *default_value;
     char *current_value;
+    bool visible;
 };
 
 struct core_options_table {
@@ -52,6 +53,12 @@ size_t core_options_table_count(const struct core_options_table *t);
 bool core_options_table_set_value(struct core_options_table *t,
                                   const char *key,
                                   const char *value);
+
+/* Set the visibility flag for an option (SET_CORE_OPTIONS_DISPLAY).
+ * Returns false if the key does not exist. */
+bool core_options_table_set_visible(struct core_options_table *t,
+                                    const char *key,
+                                    bool visible);
 
 struct variable_table {
     struct retro_variable *items;          /* sorted by key */

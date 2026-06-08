@@ -725,6 +725,21 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
     blit.dstOffsets[1].y = dst_y + dst_h;
     blit.dstOffsets[1].z = 1;
 
+    /* Honor rotation from SET_ROTATION. vkCmdBlitImage cannot express a
+     * 90/270-degree rotation, so we support only 0 and 180 (axis flip).
+     * 180 is achieved by swapping both dst offset corners. */
+    unsigned rot = g_frontend.video.rotation & 3;
+    if (rot == 1 || rot == 3) {
+        LOG_WARN("video_vk_present: rotation %u not supported via "
+                 "vkCmdBlitImage; treating as 0", rot);
+        rot = 0;
+    }
+    if (rot == 2) {
+        VkOffset3D tmp = blit.dstOffsets[0];
+        blit.dstOffsets[0] = blit.dstOffsets[1];
+        blit.dstOffsets[1] = tmp;
+    }
+
     vkCmdBlitImage(cmd,
                    core_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                    ctx->swapchain_images[image_index], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,

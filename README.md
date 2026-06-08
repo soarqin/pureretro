@@ -108,6 +108,7 @@ cmake .. -DPURERETRO_ENABLE_VULKAN=OFF
 | `--audio-rate <Hz>` | 4000–384000 | Override audio sample rate (default: core's reported rate). |
 | `--audio-buffer-ms <ms>` | 1–5000 | Override minimum audio buffer latency (default: 64 ms). |
 | `--log-level <lvl>` | `debug`/`info`/`warn`/`error` | Log threshold (also `PURERETRO_LOG` env var). Default `info`. |
+| `--savestate <file>` | file path | Load a savestate file after core init. |
 
 ### Default Keyboard Mapping
 

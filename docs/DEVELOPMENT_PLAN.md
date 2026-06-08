@@ -21,7 +21,7 @@
 
 | Command | 实现 | 说明 |
 |---------|------|------|
-| SET_ROTATION | 🟡 Stub | 返回 false |
+| SET_ROTATION | ✅ | 0/90/180/270 CCW，SW 全支持，GL/VK 支持 0/180 |
 | GET_OVERSCAN | ✅ | 返回 false（无 overscan） |
 | GET_CAN_DUPE | ✅ | 返回 true |
 | SET_MESSAGE | ✅ | 打印到 stderr |
@@ -38,7 +38,7 @@
 | GET_VARIABLE_UPDATE | ✅ | 返回 false（无运行时变量更新） |
 | SET_SUPPORT_NO_GAME | ✅ | 返回 true |
 | GET_LIBRETRO_PATH | ✅ | 返回 core_path |
-| SET_FRAME_TIME_CALLBACK | 🟡 Stub | 返回 false |
+| SET_FRAME_TIME_CALLBACK | ✅ | 每帧前调用，传递实际 us 增量 |
 | SET_AUDIO_CALLBACK | 🟡 Stub | 返回 false |
 | GET_RUMBLE_INTERFACE | 🟡 Stub | 返回 false（不计划实现） |
 | GET_INPUT_DEVICE_CAPABILITIES | ✅ | 仅报告 joypad |
@@ -73,7 +73,7 @@
 | GET_CORE_OPTIONS_VERSION | ✅ | 返回 2 |
 | SET_CORE_OPTIONS | ✅ | v1 选项定义 |
 | SET_CORE_OPTIONS_INTL | ✅ | v1 国际化 |
-| SET_CORE_OPTIONS_DISPLAY | 🟡 Stub | 返回 false |
+| SET_CORE_OPTIONS_DISPLAY | ✅ | 更新选项 visible 标志 |
 | GET_PREFERRED_HW_RENDER | ✅ | 返回 renderer 偏好 |
 | GET_DISK_CONTROL_INTERFACE_VERSION | ✅ | 返回 1 |
 | SET_DISK_CONTROL_EXT_INTERFACE | ✅ | 存储回调 + 应用 `--disk-index` |
@@ -123,11 +123,8 @@ SET_FASTFORWARDING_OVERRIDE / SET_CONTENT_INFO_OVERRIDE / GET_GAME_INFO_EXT）
 
 | 优先级 | Command / 配置项 | 当前状态 | 说明 |
 |--------|-----------------|----------|------|
-| **P3** | `SET_ROTATION` (1) | 🟡 Stub | 竖屏街机核心需要，需在 present 阶段旋转 |
-| **P3** | `SET_FRAME_TIME_CALLBACK` (21) | 🟡 Stub | TAS 精准计时。需在 `run_loop` 每帧调用 |
 | **P3** | `SET_AUDIO_CALLBACK` (22) | 🟡 Stub | 核心接管音频，极少使用 |
 | **P3** | `SET_INPUT_DESCRIPTORS` (11) | 🟡 Stub | 提供输入标签，PureRetro 无 GUI 价值低 |
-| **P3** | `SET_CORE_OPTIONS_DISPLAY` (55) | 🟡 Stub | 核心选项显示类别，无 GUI 价值低 |
 
 ---
 
@@ -190,22 +187,12 @@ SET_FASTFORWARDING_OVERRIDE / SET_CONTENT_INFO_OVERRIDE / GET_GAME_INFO_EXT）
 
 ---
 
-## 8. 推荐下一轮立即执行的 Top 5 任务
+## 8. 第四轮完成
 
-经过三轮环境回调补齐，大多数 libretro 核心所需接口已覆盖。当前最大的行为缺失是**数据持久化**（SRAM / savestate）以及几个高价值 P3 回调。
+经过四轮环境回调补齐，所有有意义的环境回调已实现。
 
-1. **SRAM 自动持久化** — 利用 `retro_get_memory_data(RETRO_MEMORY_SAVE_RAM)` / `retro_get_memory_size(RETRO_MEMORY_SAVE_RAM)`，在关机时写 .srm 文件，启动时读取。这是许多核心期望的基本功能。约 60-80 行。
-
-2. **Savestate (retro_serialize / retro_unserialize)** — 加载 `retro_serialize` / `retro_unserialize` 符号；实现 `--savestate <file>` CLI 用于重放/调试。由于我们有保存目录，可自动按内容名生成路径。约 60 行。
-
-3. **`SET_ROTATION` (1)** — 竖屏街机核心（Cave shmups）需要。在 video_backend vtable 中新增 rotation 字段，present 时旋转输出（软件：SDL_RenderTextureRotated；GL：UV 交换；VK：旋转 viewport/矩阵）。约 100-150 行（跨三个渲染器）。
-
-4. **`SET_FRAME_TIME_CALLBACK` (21)** — TAS 精准计时。在 run_loop 中每帧前调用 core 提供的回调，传递精确微秒数。约 15 行。
-
-5. **`SET_CORE_OPTIONS_DISPLAY` (55)** — 存储每个选项的 `visible` 标志，在 SET_VARIABLE 时重新评估。虽然无 GUI 但让核心更准确控制选项可见性。约 30 行（核心变量的 CORE_OPTIONS_DISPLAY 处理 + 子区域可见计算）。
-
-明确**这一轮不做**：
-
-- `SET_AUDIO_CALLBACK`：极少数核心使用，audio pipeline 重构代价大
-- `SET_INPUT_DESCRIPTORS`：无 GUI 价值低
-- `GET_DEVICE_POWER` / `SET_NETPACKET_INTERFACE` / `GET_NETPLAY_CLIENT_INDEX` / `EXEC_MEM_*`：Not Planned
+- ✅ **SRAM 自动持久化** — 启动时从 `<save_dir>/<content_basename>.srm` 加载，关闭前写回
+- ✅ **Savestate (retro_serialize / retro_unserialize)** — 可选符号加载 + `--savestate <file>`
+- ✅ **`SET_ROTATION` (1)** — SW 全旋转支持（SDL_RenderTextureRotated），GL/VK 支持 0/180
+- ✅ **`SET_FRAME_TIME_CALLBACK` (21)** — TAS 精准计时：每帧前调用，实际 us 增量
+- ✅ **`SET_CORE_OPTIONS_DISPLAY` (55)** — 每个 core_option 的 visible 标志

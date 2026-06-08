@@ -371,14 +371,31 @@ void video_gl_present(struct video_gl_context *ctx, unsigned width, unsigned hei
 
     glBindFramebuffer(GL_READ_FRAMEBUFFER, ctx->fbo);
 
-    /* Blit the rendered region (width x height) to a centered rectangle
-     * that preserves aspect ratio. */
+    /* Honor rotation from SET_ROTATION. glBlitFramebuffer cannot express a
+     * 90/270-degree rotation, so we support only 0 and 180 (flip both axes). */
+    unsigned rot = g_frontend.video.rotation & 3;
+    if (rot == 1 || rot == 3) {
+        LOG_WARN("video_gl_present: rotation %u not supported via "
+                 "glBlitFramebuffer; treating as 0", rot);
+        rot = 0;
+    }
+
+    /* Compute destination rectangle preserving aspect ratio.
+     * For 180-degree rotation we flip the source rectangle so the blit
+     * inverts both axes, which acts as a full 180° turn. */
     int dst_x, dst_y, dst_w, dst_h;
     fit_aspect(width, height, w, h, &dst_x, &dst_y, &dst_w, &dst_h);
 
+    GLint src_x0 = 0, src_x1 = (GLint)width;
     GLint src_y0 = ctx->bottom_left_origin ? 0 : (GLint)height;
     GLint src_y1 = ctx->bottom_left_origin ? (GLint)height : 0;
-    glBlitFramebuffer(0, src_y0, (GLint)width, src_y1,
+
+    if (rot == 2) {
+        GLint tmp = src_x0; src_x0 = src_x1; src_x1 = tmp;
+        tmp = src_y0; src_y0 = src_y1; src_y1 = tmp;
+    }
+
+    glBlitFramebuffer(src_x0, src_y0, src_x1, src_y1,
                       dst_x, dst_y, dst_x + dst_w, dst_y + dst_h,
                       GL_COLOR_BUFFER_BIT, GL_LINEAR);
 

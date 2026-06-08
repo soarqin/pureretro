@@ -114,6 +114,7 @@ bool core_options_table_add(struct core_options_table *t,
         opt.values[n] = NULL;
     }
 
+    opt.visible = true;
     t->options[t->count] = opt;
 
     /* Insert t->count into sorted_index at the correct position. */
@@ -189,6 +190,21 @@ bool core_options_table_set_value(struct core_options_table *t,
     struct core_option *mutable_opt = (struct core_option *)opt;
     free(mutable_opt->current_value);
     mutable_opt->current_value = v;
+    return true;
+}
+
+bool core_options_table_set_visible(struct core_options_table *t,
+                                    const char *key,
+                                    bool visible)
+{
+    if (!t || !key)
+        return false;
+
+    const struct core_option *opt = core_options_table_get(t, key);
+    if (!opt)
+        return false;
+
+    ((struct core_option *)opt)->visible = visible;
     return true;
 }
 

@@ -49,6 +49,7 @@ static void print_usage(const char *argv0)
             FRONTEND_AUDIO_BUFFER_MS);
     fprintf(stderr, "  --log-level <lvl>   debug, info (default), warn, or error\n");
     fprintf(stderr, "                      Also settable via PURERETRO_LOG environment variable.\n");
+    fprintf(stderr, "  --savestate <file>  Load a savestate file after core init.\n");
 }
 
 static bool parse_lang(const char *arg, enum retro_language *out)
@@ -331,6 +332,14 @@ static bool parse_args(int argc, char *argv[])
                 return false;
             }
             log_set_level(lvl);
+        } else if (strcmp(argv[i], "--savestate") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--savestate requires a file path\n");
+                print_usage(argv[0]);
+                return false;
+            }
+            ++i;
+            g_frontend.savestate_load_path = argv[i];
         } else {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             print_usage(argv[0]);
@@ -441,6 +450,7 @@ static void frontend_shutdown(void)
 static void run_loop(void)
 {
     SDL_Event event;
+    Uint64 prev_frame_ns = 0;
 
     while (g_frontend.running) {
         Uint64 frame_start = SDL_GetTicksNS();
@@ -479,6 +489,28 @@ static void run_loop(void)
 
         input_poll();
         audio_notify_buffer_status();
+
+        /* Invoke the core's frame-time callback (SET_FRAME_TIME_CALLBACK)
+         * with the actual microseconds since the previous frame, or with
+         * `reference` on the first frame and when the delta is implausible
+         * (negative due to clock skew, or absurdly large after a pause). */
+        if (g_frontend.frame_time_callback) {
+            retro_usec_t delta;
+            if (prev_frame_ns == 0) {
+                delta = g_frontend.frame_time_reference;
+            } else {
+                Uint64 d_ns = frame_start - prev_frame_ns;
+                /* Cap at 1 second to keep the core's timer from blowing up
+                 * after a pause / window-drag stall. */
+                if (d_ns > 1000000000ULL)
+                    delta = g_frontend.frame_time_reference;
+                else
+                    delta = (retro_usec_t)(d_ns / 1000ULL);
+            }
+            g_frontend.frame_time_callback(delta);
+        }
+        prev_frame_ns = frame_start;
+
         core_run();
 
         /* Skip the frame-pacing delay when the core has requested
@@ -589,7 +621,33 @@ int main(int argc, char *argv[])
         }
     }
 
+    /* SRAM auto-persistence. The path is derived from the content's basename
+     * (without extension) under save_directory (falling back to the system
+     * directory when save_directory was not set). Cores with no SRAM region
+     * silently no-op. */
+    {
+        const char *save_dir = g_frontend.save_directory
+                               ? g_frontend.save_directory
+                               : g_frontend.system_directory;
+        g_frontend.sram_path = core_sram_path(save_dir, g_frontend.content_path);
+        if (g_frontend.sram_path)
+            core_sram_load(g_frontend.sram_path);
+    }
+
+    /* Load an explicit savestate if requested via --savestate. Failure here
+     * is non-fatal: the user still gets the game from a fresh state. */
+    if (g_frontend.savestate_load_path)
+        core_savestate_load(g_frontend.savestate_load_path);
+
     run_loop();
+
+    /* Persist SRAM before tearing down the core. retro_get_memory_data
+     * returns NULL after core_unload, so this must run first. */
+    if (g_frontend.sram_path) {
+        core_sram_save(g_frontend.sram_path);
+        free(g_frontend.sram_path);
+        g_frontend.sram_path = NULL;
+    }
 
     if (g_frontend.video.hw_render_enabled) {
         video_context_destroy();

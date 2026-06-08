@@ -4,7 +4,7 @@ This document provides architectural context, coding conventions, and workflow g
 
 ## Project Identity
 
-PureRetro is a **minimal libretro frontend**. It is educational by design — every line should justify its existence. Avoid feature creep: no GUI framework, no configuration file parser, no shader stack, no rewind/savestate UI.
+PureRetro is a **minimal libretro frontend**. It is educational by design — every line should justify its existence. Avoid feature creep: no GUI framework, no configuration file parser, no shader stack, no rewind UI. Savestates are intentionally simple: `--savestate <file>` auto-loads on startup; no in-app save/load UI or hotkeys.
 
 ## Project Status
 
@@ -167,12 +167,12 @@ The `core.c` module implements the frontend's `retro_environment_t`. The table b
 | `SET_FASTFORWARDING_OVERRIDE` | ✅ Implemented | Toggles `g_frontend.fast_forward_active`; run_loop skips the frame-pacing delay and `GET_FASTFORWARDING`/`GET_THROTTLE_STATE`/`GET_AUDIO_VIDEO_ENABLE` reflect the state. |
 | `SET_CONTENT_INFO_OVERRIDE` | ✅ Implemented | Deep-copies the override array. Frontend keeps ROM data alive until shutdown regardless of `persistent_data`. |
 | `GET_GAME_INFO_EXT` | ✅ Implemented | Returns the populated extended info; valid inside `retro_load_game`/`retro_load_game_special`. |
-| `SET_ROTATION` | 📝 Stub | Returns false. |
+| `SET_ROTATION` | ✅ Implemented | Stored in `g_frontend.video.rotation` (0/90/180/270 CCW). SW renderer rotates natively; GL/VK support 0 and 180 only (90/270 logged + treated as 0). |
 | `SET_PERFORMANCE_LEVEL` | ✅ Implemented | Logs the core's hint at INFO level. |
 | `SET_INPUT_DESCRIPTORS` | 📝 Stub | Returns false. |
-| `SET_FRAME_TIME_CALLBACK` | 📝 Stub | Returns false. |
+| `SET_FRAME_TIME_CALLBACK` | ✅ Implemented | Stored callback; invoked once per frame before `retro_run()` with actual microseconds (or `reference` on first frame / after a >1s stall). |
 | `SET_AUDIO_CALLBACK` | 📝 Stub | Returns false. |
-| `SET_CORE_OPTIONS_DISPLAY` | 📝 Stub | Returns false (no GUI). |
+| `SET_CORE_OPTIONS_DISPLAY` | ✅ Implemented | Updates the `visible` flag on the matching `core_option`. Returns false when the key was not declared. |
 | `GET_RUMBLE_INTERFACE` | 📝 Stub (Not planned) | Returns false. |
 | `GET_SENSOR_INTERFACE` | 📝 Stub (Not planned) | Returns false. |
 | `GET_CAMERA_INTERFACE` | 📝 Stub (Not planned) | Returns false. |
@@ -202,6 +202,7 @@ The `core.c` module implements the frontend's `retro_environment_t`. The table b
 | `--audio-rate <Hz>` | 4000–384000 | Override audio sample rate (default: core's reported rate). |
 | `--audio-buffer-ms <ms>` | 1–5000 | Override minimum audio buffer latency (default: `FRONTEND_AUDIO_BUFFER_MS`). |
 | `--log-level <lvl>` | `debug` / `info` / `warn` / `error` | Override logger threshold (also `PURERETRO_LOG` env var). Default `info`. |
+| `--savestate <path>` | file path | Load a savestate file after core init. |
 
 ## Logging
 
@@ -214,6 +215,18 @@ in-frontend messages and `CORE` for those forwarded via
 the active level are dropped cheaply. Internal code uses the
 `LOG_DEBUG / LOG_INFO / LOG_WARN / LOG_ERROR` macros from `log.h`; pre-init
 CLI-usage output remains direct `fprintf(stderr, ...)`.
+
+## Persistence
+
+- **SRAM (.srm)**: Auto-loaded from `<save_dir>/<content_basename>.srm` after core init,
+  auto-saved before core unload. Uses `retro_get_memory_data(RETRO_MEMORY_SAVE_RAM)`.
+  No-op when the core has no SRAM region or the content path is NULL.
+  The `save_directory` is resolved as `g_frontend.save_directory` (falling back to
+  `system_directory`). Missing `.srm` files are silently ignored.
+- **Savestates**: `--savestate <file>` loads a savestate (via `retro_unserialize`)
+  once after core init. `retro_serialize` / `retro_unserialize` / `retro_serialize_size`
+  are loaded as optional symbols; cores that do not export them silently no-op.
+  No in-app hotkey or auto-save — keep persistence intentional and minimal.
 
 ## Cross-Platform Rules
 
