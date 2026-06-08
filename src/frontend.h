@@ -7,11 +7,14 @@
 #ifndef FRONTEND_H
 #define FRONTEND_H
 
+#include "core_variables.h"
+
+#include "libretro.h"
+
+#include <SDL3/SDL.h>
+
 #include <stdbool.h>
 #include <stdint.h>
-#include <SDL3/SDL.h>
-#include "libretro.h"
-#include "core_variables.h"
 
 #ifdef __cplusplus
 extern "C" {

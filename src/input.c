@@ -4,16 +4,18 @@
  * Keyboard mapping to libretro's RetroPad abstraction.
  */
 
+#include "input.h"
+#include "frontend.h"
+#include "log.h"
+
+#include <SDL3/SDL.h>
+
 #include <ctype.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <SDL3/SDL.h>
-#include "input.h"
-#include "frontend.h"
-#include "log.h"
 
 /* ------------------------------------------------------------------ */
 /* RetroPad button name lookup                                         */

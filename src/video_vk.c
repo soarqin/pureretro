@@ -5,16 +5,18 @@
  * Presentation uses vkCmdBlitImage (no shaders or render passes).
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <SDL3/SDL.h>
-#include <SDL3/SDL_vulkan.h>
 #include "video_vk.h"
 #include "video_backend.h"
 #include "frontend.h"
 #include "core.h"
 #include "log.h"
+
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_vulkan.h>
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #ifdef PURERETRO_VULKAN_ENABLED
 

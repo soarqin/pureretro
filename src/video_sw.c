@@ -4,13 +4,15 @@
  * Blits core pixel data to an SDL3 texture.
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <SDL3/SDL.h>
 #include "video_sw.h"
 #include "video_backend.h"
 #include "log.h"
+
+#include <SDL3/SDL.h>
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 bool video_sw_init(SDL_Window *window, struct video_sw_context **out_ctx)
 {

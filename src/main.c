@@ -6,10 +6,6 @@
  */
 
 #define _POSIX_C_SOURCE 200809L
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <SDL3/SDL.h>
 #include "frontend.h"
 #include "core.h"
 #include "core_variables.h"
@@ -17,6 +13,12 @@
 #include "audio.h"
 #include "input.h"
 #include "log.h"
+
+#include <SDL3/SDL.h>
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 /* Global frontend state */
 struct frontend_state g_frontend;

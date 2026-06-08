@@ -24,12 +24,15 @@
 #ifndef VIDEO_BACKEND_H
 #define VIDEO_BACKEND_H
 
+#include "frontend.h"
+
+#include "libretro.h"
+
+#include <SDL3/SDL.h>
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <SDL3/SDL.h>
-#include "libretro.h"
-#include "frontend.h"
 
 #ifdef __cplusplus
 extern "C" {

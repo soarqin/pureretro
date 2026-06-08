@@ -7,10 +7,12 @@
 #ifndef INPUT_H
 #define INPUT_H
 
+#include "libretro.h"
+
+#include <SDL3/SDL.h>
+
 #include <stdbool.h>
 #include <stdint.h>
-#include <SDL3/SDL.h>
-#include "libretro.h"
 
 #ifdef __cplusplus
 extern "C" {

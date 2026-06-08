@@ -5,11 +5,6 @@
  * environment callback implementation.
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdarg.h>
-#include <SDL3/SDL.h>
 #include "core.h"
 #include "core_variables_parse.h"
 #include "frontend.h"
@@ -18,6 +13,13 @@
 #include "input.h"
 #include "vfs.h"
 #include "log.h"
+
+#include <SDL3/SDL.h>
+
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 struct core_functions g_core;
 struct retro_system_av_info g_av_info;

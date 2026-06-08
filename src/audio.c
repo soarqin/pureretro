@@ -4,13 +4,15 @@
  * SDL3 audio stream for core audio output.
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <SDL3/SDL.h>
 #include "audio.h"
 #include "frontend.h"
 #include "log.h"
+
+#include <SDL3/SDL.h>
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 /* Default queue cap: ~1 second of stereo s16 audio. Tuned at audio_init
  * once we know the real sample rate; can be raised by the core via

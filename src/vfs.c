@@ -15,6 +15,8 @@
 #  endif
 #endif
 
+#include "vfs.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,8 +32,6 @@
 #else
 #  include <sys/types.h>
 #endif
-
-#include "vfs.h"
 
 static const char *RETRO_CALLCONV vfs_get_path(struct retro_vfs_file_handle *stream)
 {

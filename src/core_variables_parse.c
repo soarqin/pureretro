@@ -2,8 +2,9 @@
  * PureRetro — Core option string parsers (see core_variables_parse.h).
  */
 
-#include <string.h>
 #include "core_variables_parse.h"
+
+#include <string.h>
 
 bool core_var_parse_default(const char *raw, char *out, size_t out_len)
 {

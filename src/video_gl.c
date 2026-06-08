@@ -4,15 +4,17 @@
  * Manages an SDL3 OpenGL context and an FBO for core rendering.
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <SDL3/SDL.h>
-#include <SDL3/SDL_opengl.h>
 #include "video_gl.h"
 #include "video_backend.h"
 #include "core.h"
 #include "log.h"
+
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_opengl.h>
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 /* APIENTRY may not be defined on all platforms */
 #ifndef APIENTRY

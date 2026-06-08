@@ -7,10 +7,12 @@
 #ifndef VIDEO_SW_H
 #define VIDEO_SW_H
 
+#include "frontend.h"
+
+#include <SDL3/SDL.h>
+
 #include <stdbool.h>
 #include <stdint.h>
-#include <SDL3/SDL.h>
-#include "frontend.h"
 
 #ifdef __cplusplus
 extern "C" {

@@ -3,13 +3,15 @@
  */
 
 #define _POSIX_C_SOURCE 200809L
+
+#include "log.h"
+
+#include <SDL3/SDL.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
 #include <time.h>
-#include <SDL3/SDL.h>
-#include "log.h"
 
 static enum log_level g_level = LOG_LEVEL_INFO;
 static bool g_level_explicit = false;
@@ -29,11 +31,11 @@ bool log_parse_level(const char *s, enum log_level *out)
 {
     if (!s || !out)
         return false;
-    if (strcasecmp(s, "debug") == 0) { *out = LOG_LEVEL_DEBUG; return true; }
-    if (strcasecmp(s, "info")  == 0) { *out = LOG_LEVEL_INFO;  return true; }
-    if (strcasecmp(s, "warn")  == 0 ||
-        strcasecmp(s, "warning") == 0) { *out = LOG_LEVEL_WARN;  return true; }
-    if (strcasecmp(s, "error") == 0) { *out = LOG_LEVEL_ERROR; return true; }
+    if (SDL_strcasecmp(s, "debug") == 0) { *out = LOG_LEVEL_DEBUG; return true; }
+    if (SDL_strcasecmp(s, "info")  == 0) { *out = LOG_LEVEL_INFO;  return true; }
+    if (SDL_strcasecmp(s, "warn")  == 0 ||
+        SDL_strcasecmp(s, "warning") == 0) { *out = LOG_LEVEL_WARN;  return true; }
+    if (SDL_strcasecmp(s, "error") == 0) { *out = LOG_LEVEL_ERROR; return true; }
     return false;
 }
 

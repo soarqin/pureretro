@@ -12,9 +12,10 @@
 #ifndef CORE_VARIABLES_H
 #define CORE_VARIABLES_H
 
+#include "libretro.h"
+
 #include <stdbool.h>
 #include <stddef.h>
-#include "libretro.h"
 
 #ifdef __cplusplus
 extern "C" {

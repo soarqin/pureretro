@@ -7,10 +7,11 @@
 #ifndef AUDIO_H
 #define AUDIO_H
 
+#include "libretro.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include "libretro.h"
 
 #ifdef __cplusplus
 extern "C" {

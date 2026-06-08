@@ -7,8 +7,9 @@
 #ifndef CORE_H
 #define CORE_H
 
-#include <stdbool.h>
 #include "libretro.h"
+
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {

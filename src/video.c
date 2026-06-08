@@ -7,21 +7,22 @@
  * asking each backend's match_hw_context() predicate.
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <SDL3/SDL.h>
 #include "video.h"
 #include "video_backend.h"
 #include "video_sw.h"
 #include "video_gl.h"
+#ifdef PURERETRO_VULKAN_ENABLED
+#include "video_vk.h"
+#endif
 #include "frontend.h"
 #include "core.h"
 #include "log.h"
 
-#ifdef PURERETRO_VULKAN_ENABLED
-#include "video_vk.h"
-#endif
+#include <SDL3/SDL.h>
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 /* Backend registry. Order matters: the first backend whose
  * match_hw_context() returns true for the requested context type

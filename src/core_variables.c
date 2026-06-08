@@ -4,13 +4,14 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include "core_variables.h"
 #include "core_variables_parse.h"
 #include "frontend.h"
 #include "log.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 /* ------------------------------------------------------------------ */
 /* core_options_table                                                  */

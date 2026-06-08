@@ -1,9 +1,10 @@
 #ifndef VFS_H
 #define VFS_H
 
+#include "libretro.h"
+
 #include <stdio.h>
 #include <stdint.h>
-#include "libretro.h"
 
 #ifdef __cplusplus
 extern "C" {

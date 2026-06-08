@@ -7,11 +7,14 @@
 #ifndef VIDEO_VK_H
 #define VIDEO_VK_H
 
+#include "frontend.h"
+
+#include "libretro.h"
+
+#include <SDL3/SDL.h>
+
 #include <stdbool.h>
 #include <stdint.h>
-#include <SDL3/SDL.h>
-#include "libretro.h"
-#include "frontend.h"
 
 #ifdef __cplusplus
 extern "C" {

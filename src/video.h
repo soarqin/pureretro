@@ -8,10 +8,12 @@
 #ifndef VIDEO_H
 #define VIDEO_H
 
+#include "frontend.h"
+
+#include "libretro.h"
+
 #include <stdbool.h>
 #include <stdint.h>
-#include "libretro.h"
-#include "frontend.h"
 
 #ifdef __cplusplus
 extern "C" {

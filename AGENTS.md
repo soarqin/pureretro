@@ -90,16 +90,38 @@ We **only** use `libretro.h` from the libretro project. Do not pull in any other
 - **Indentation:** 4 spaces. No tabs.
 - **Braces:** K&R style — opening brace on the same line.
 - **Line length:** Prefer <= 100 characters, but do not sacrifice readability to enforce it.
-- **Headers:** Include order: (1) system headers, (2) SDL3 headers, (3) `libretro.h`, (4) local headers.
+- **Headers:** Include order (reverse of the conventional order — see rationale below):
+  1. The matching header for the current translation unit (e.g. `audio.c` includes `"audio.h"` first).
+  2. Other project-local headers (`"frontend.h"`, `"log.h"`, ...).
+  3. External/third-party headers (`"libretro.h"`, `<SDL3/SDL.h>`, `<vulkan/vulkan.h>`, ...).
+  4. C standard library / system headers (`<stdio.h>`, `<string.h>`, `<sys/types.h>`, ...).
+
+  Separate the four groups with a blank line. Headers must be self-contained:
+  every header includes exactly what it needs and nothing more.
+
+  **Rationale:** including local headers *first* ensures that if a header
+  forgets a transitive `#include` (e.g. `"video.h"` uses `size_t` but never
+  includes `<stddef.h>`), the build breaks immediately instead of being
+  silently masked by a system header that an earlier `#include <stdio.h>`
+  already pulled in. The compiler diagnostic points at the missing
+  include in the header — exactly where the bug lives.
+
+  **Feature-test macros** (`_POSIX_C_SOURCE`, `_FILE_OFFSET_BITS`, ...) must
+  still be `#define`d *before any header is included*, including the
+  module's own header, because that header transitively pulls in system
+  headers that consult those macros.
 
 ### Example
 
 ```c
+#include "frontend.h"
+
+#include "libretro.h"
+
+#include <SDL3/SDL.h>
+
 #include <stdbool.h>
 #include <stdint.h>
-#include <SDL3/SDL.h>
-#include "libretro.h"
-#include "frontend.h"
 
 static bool g_running = true;
 
