@@ -772,16 +772,6 @@ bool core_savestate_save(const char *path)
 /* Callbacks exposed to the core                                      */
 /* ------------------------------------------------------------------ */
 
-/* Helper: returns true if data is non-NULL; otherwise logs and returns false. */
-static bool require_data(unsigned cmd, const void *data)
-{
-    if (!data) {
-        LOG_WARN("core_environment: NULL data for cmd %u (0x%x)", cmd, cmd);
-        return false;
-    }
-    return true;
-}
-
 static bool add_options_from_v1_defs(const struct retro_core_option_definition *defs)
 {
     bool ok = true;
@@ -1492,9 +1482,467 @@ static bool env_get_current_software_framebuffer(struct frontend_state *fe, void
     return true;
 }
 
+/* ---- R1c: heavy handlers ---- */
+
+static bool env_set_hw_render(struct frontend_state *fe, void *data)
+{
+    (void)fe;
+    if (!data) { LOG_WARN("env_set_hw_render: NULL data"); return false; }
+    return video_set_hw_render((struct retro_hw_render_callback *)data);
+}
+
+static bool env_get_variable(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_get_variable: NULL data"); return false; }
+    struct retro_variable *var = (struct retro_variable *)data;
+    if (!var->key)
+        return false;
+
+    const char *override = variable_table_get(&fe->cli_overrides,
+                                              var->key);
+    if (!override)
+        override = variable_table_get(&fe->disk_overrides, var->key);
+    if (override) {
+        var->value = override;
+        return true;
+    }
+
+    const struct core_option *opt =
+        core_options_table_get(&fe->core_options, var->key);
+    if (!opt)
+        return false;
+
+    var->value = opt->current_value ? opt->current_value : opt->default_value;
+    return true;
+}
+
+static bool env_set_variables(struct frontend_state *fe, void *data)
+{
+    const struct retro_variable *vars = (const struct retro_variable *)data;
+    if (!vars)
+        return false;
+
+    core_options_table_clear(&fe->core_options);
+
+    bool ok = true;
+    for (const struct retro_variable *v = vars; v && v->key; ++v) {
+        char desc[256];
+        core_var_parse_description(v->value, desc, sizeof(desc));
+
+        char def[256];
+        core_var_parse_default(v->value, def, sizeof(def));
+
+        const char *choices = core_var_choices_begin(v->value);
+        /* libretro spec caps choices at RETRO_NUM_CORE_OPTION_VALUES_MAX
+         * (128). Allocate one extra slot for the trailing NULL sentinel
+         * required by core_options_table_add. */
+        const char *values[RETRO_NUM_CORE_OPTION_VALUES_MAX + 1];
+        size_t val_count = 0;
+
+        if (choices) {
+            const char *p = choices;
+            while (*p) {
+                if (val_count >= RETRO_NUM_CORE_OPTION_VALUES_MAX) {
+                    ok = false;
+                    break;
+                }
+                const char *end = p;
+                while (*end && *end != '|')
+                    ++end;
+                size_t len = (size_t)(end - p);
+                char *choice = malloc(len + 1);
+                if (!choice) {
+                    ok = false;
+                    break;
+                }
+                memcpy(choice, p, len);
+                choice[len] = '\0';
+                values[val_count++] = choice;
+                if (*end == '|')
+                    ++end;
+                p = end;
+            }
+        }
+
+        if (!ok) {
+            for (size_t i = 0; i < val_count; ++i)
+                free((char *)values[i]);
+            break;
+        }
+        values[val_count] = NULL;
+
+        if (!core_options_table_add(&fe->core_options,
+                                    v->key, desc, NULL, values, def)) {
+            ok = false;
+        }
+
+        for (size_t i = 0; i < val_count; ++i)
+            free((char *)values[i]);
+
+        if (!ok)
+            break;
+    }
+
+    if (!ok)
+        core_options_table_clear(&fe->core_options);
+
+    size_t seeded = 0;
+    size_t total = core_options_table_count(&fe->core_options);
+    for (size_t i = 0; i < total; ++i) {
+        const struct core_option *opt =
+            core_options_table_at(&fe->core_options, i);
+        if (variable_table_get(&fe->disk_overrides, opt->key))
+            continue;
+        if (variable_table_set(&fe->disk_overrides,
+                               opt->key, opt->default_value))
+            seeded++;
+    }
+
+    LOG_INFO("Core registered %zu variables (%zu seeded from defaults)",
+             total, seeded);
+    return ok;
+}
+
+static bool env_set_core_options(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_set_core_options: NULL data"); return false; }
+    const struct retro_core_option_definition *defs =
+        (const struct retro_core_option_definition *)data;
+    core_options_table_clear(&fe->core_options);
+    bool ok = add_options_from_v1_defs(defs);
+    if (!ok) {
+        core_options_table_clear(&fe->core_options);
+        return false;
+    }
+    size_t seeded = seed_disk_overrides_from_defaults();
+    size_t total = core_options_table_count(&fe->core_options);
+    LOG_INFO("Core registered %zu options (%zu seeded from defaults)",
+             total, seeded);
+    return true;
+}
+
+static bool env_set_core_options_intl(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_set_core_options_intl: NULL data"); return false; }
+    const struct retro_core_options_intl *opts =
+        (const struct retro_core_options_intl *)data;
+    core_options_table_clear(&fe->core_options);
+    bool ok = true;
+    if (opts->us)
+        ok = add_options_from_v1_defs(opts->us);
+    if (!ok) {
+        core_options_table_clear(&fe->core_options);
+        return false;
+    }
+    size_t seeded = seed_disk_overrides_from_defaults();
+    size_t total = core_options_table_count(&fe->core_options);
+    LOG_INFO("Core registered %zu options (%zu seeded from defaults)",
+             total, seeded);
+    return true;
+}
+
+static bool env_set_core_options_v2(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_set_core_options_v2: NULL data"); return false; }
+    const struct retro_core_options_v2 *opts =
+        (const struct retro_core_options_v2 *)data;
+    core_options_table_clear(&fe->core_options);
+    bool ok = add_options_from_v2_defs(opts->definitions);
+    if (!ok) {
+        core_options_table_clear(&fe->core_options);
+        return false;
+    }
+    size_t seeded = seed_disk_overrides_from_defaults();
+    size_t total = core_options_table_count(&fe->core_options);
+    LOG_INFO("Core registered %zu options (%zu seeded from defaults)",
+             total, seeded);
+    return true;
+}
+
+static bool env_set_core_options_v2_intl(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_set_core_options_v2_intl: NULL data"); return false; }
+    const struct retro_core_options_v2_intl *opts =
+        (const struct retro_core_options_v2_intl *)data;
+    core_options_table_clear(&fe->core_options);
+    bool ok = true;
+    if (opts->us)
+        ok = add_options_from_v2_defs(opts->us->definitions);
+    if (!ok) {
+        core_options_table_clear(&fe->core_options);
+        return false;
+    }
+    size_t seeded = seed_disk_overrides_from_defaults();
+    size_t total = core_options_table_count(&fe->core_options);
+    LOG_INFO("Core registered %zu options (%zu seeded from defaults)",
+             total, seeded);
+    return true;
+}
+
+static bool env_set_core_options_display(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_set_core_options_display: NULL data"); return false; }
+    const struct retro_core_option_display *disp =
+        (const struct retro_core_option_display *)data;
+    if (!disp->key)
+        return false;
+    if (!core_options_table_set_visible(&fe->core_options,
+                                        disp->key, disp->visible)) {
+        /* The core may toggle visibility for an option it has not yet
+         * declared (e.g. during a multi-stage SET_VARIABLES sequence).
+         * Return false so the core knows we did not record it. */
+        return false;
+    }
+    return true;
+}
+
+static bool env_set_controller_info(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_set_controller_info: NULL data"); return false; }
+    const struct retro_controller_info *info =
+        (const struct retro_controller_info *)data;
+
+    controller_ports_clear();
+
+    unsigned port = 0;
+    for (const struct retro_controller_info *p = info;
+         p && p->types && p->num_types > 0;
+         ++p, ++port) {
+        if (port >= FRONTEND_MAX_PORTS) {
+            LOG_WARN("SET_CONTROLLER_INFO: dropping ports beyond %u",
+                     (unsigned)FRONTEND_MAX_PORTS);
+            break;
+        }
+
+        struct controller_port_info *slot = &fe->controller_ports[port];
+        slot->types = calloc(p->num_types, sizeof(*slot->types));
+        if (!slot->types) {
+            controller_ports_clear();
+            return false;
+        }
+        slot->num_types = p->num_types;
+
+        for (unsigned i = 0; i < p->num_types; ++i) {
+            slot->types[i].id = p->types[i].id;
+            slot->types[i].desc = p->types[i].desc
+                ? SDL_strdup(p->types[i].desc) : NULL;
+        }
+    }
+    fe->controller_port_count = port;
+
+    LOG_INFO("Core registered controller info for %u port(s):", port);
+    for (unsigned i = 0; i < port; ++i) {
+        const struct controller_port_info *slot = &fe->controller_ports[i];
+        LOG_INFO("  port %u: %u device type(s)", i, slot->num_types);
+        for (unsigned t = 0; t < slot->num_types; ++t) {
+            LOG_INFO("    [%u] id=%u desc=%s",
+                     t, slot->types[t].id,
+                     slot->types[t].desc ? slot->types[t].desc : "(null)");
+        }
+    }
+    return true;
+}
+
+static bool env_set_disk_control_ext_interface(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_set_disk_control_ext_interface: NULL data"); return false; }
+    const struct retro_disk_control_ext_callback *cb =
+        (const struct retro_disk_control_ext_callback *)data;
+    fe->disk_control = *cb;
+    fe->has_disk_control = true;
+    LOG_INFO("Core registered disk control ext interface (num_images=%u)",
+             cb->get_num_images ? cb->get_num_images() : 0);
+    disk_control_apply_initial_index();
+    return true;
+}
+
+static bool env_set_serialization_quirks(struct frontend_state *fe, void *data)
+{
+    (void)fe;
+    if (!data) { LOG_WARN("env_set_serialization_quirks: NULL data"); return false; }
+    uint64_t *quirks = (uint64_t *)data;
+    /* The frontend does not require the core to drop any quirks, so we
+     * leave whatever the core wrote in place. Log the declared bits so
+     * savestate misbehavior is easier to attribute. */
+    LOG_INFO("Core serialization quirks: 0x%llx",
+             (unsigned long long)*quirks);
+    return true;
+}
+
+static bool env_set_hw_shared_context(struct frontend_state *fe, void *data)
+{
+    (void)data;
+    fe->video.hw_shared_context_requested = true;
+    LOG_INFO("Core requested shared GL context");
+    return true;
+}
+
+static bool env_set_subsystem_info(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_set_subsystem_info: NULL data"); return false; }
+    const struct retro_subsystem_info *list =
+        (const struct retro_subsystem_info *)data;
+
+    subsystem_info_clear();
+
+    /* Count entries first (terminated by a zeroed-out struct). */
+    unsigned count = 0;
+    for (const struct retro_subsystem_info *p = list;
+         p && (p->desc || p->ident || p->roms || p->num_roms);
+         ++p)
+        count++;
+
+    if (count == 0) {
+        LOG_INFO("Core registered 0 subsystems");
+        return true;
+    }
+
+    fe->subsystem_info = calloc(count,
+        sizeof(*fe->subsystem_info));
+    if (!fe->subsystem_info)
+        return false;
+    fe->subsystem_info_count = count;
+
+    for (unsigned i = 0; i < count; ++i) {
+        const struct retro_subsystem_info *src = &list[i];
+        struct subsystem_storage *dst = &fe->subsystem_info[i];
+        dst->desc  = src->desc  ? SDL_strdup(src->desc)  : NULL;
+        dst->ident = src->ident ? SDL_strdup(src->ident) : NULL;
+        dst->id    = src->id;
+        dst->num_roms = src->num_roms;
+        if (src->num_roms == 0)
+            continue;
+
+        dst->roms = calloc(src->num_roms, sizeof(*dst->roms));
+        if (!dst->roms) {
+            subsystem_info_clear();
+            return false;
+        }
+
+        for (unsigned j = 0; j < src->num_roms; ++j) {
+            const struct retro_subsystem_rom_info *srom = &src->roms[j];
+            struct subsystem_rom_storage *drom = &dst->roms[j];
+            drom->desc             = srom->desc
+                                     ? SDL_strdup(srom->desc) : NULL;
+            drom->valid_extensions = srom->valid_extensions
+                                     ? SDL_strdup(srom->valid_extensions)
+                                     : NULL;
+            drom->need_fullpath    = srom->need_fullpath;
+            drom->block_extract    = srom->block_extract;
+            drom->required         = srom->required;
+            drom->num_memory       = srom->num_memory;
+            if (srom->num_memory == 0)
+                continue;
+
+            drom->memory = calloc(srom->num_memory, sizeof(*drom->memory));
+            drom->memory_extensions =
+                calloc(srom->num_memory, sizeof(*drom->memory_extensions));
+            if (!drom->memory || !drom->memory_extensions) {
+                subsystem_info_clear();
+                return false;
+            }
+            for (unsigned k = 0; k < srom->num_memory; ++k) {
+                drom->memory_extensions[k] = srom->memory[k].extension
+                    ? SDL_strdup(srom->memory[k].extension) : NULL;
+                drom->memory[k].extension = drom->memory_extensions[k];
+                drom->memory[k].type      = srom->memory[k].type;
+            }
+        }
+    }
+
+    LOG_INFO("Core registered %u subsystem(s):", count);
+    for (unsigned i = 0; i < count; ++i) {
+        const struct subsystem_storage *ss = &fe->subsystem_info[i];
+        LOG_INFO("  [%u] id=%u ident=%s desc=%s roms=%u",
+                 i, ss->id,
+                 ss->ident ? ss->ident : "(null)",
+                 ss->desc  ? ss->desc  : "(null)",
+                 ss->num_roms);
+    }
+    return true;
+}
+
+static bool env_set_memory_maps(struct frontend_state *fe, void *data)
+{
+    if (!data) { LOG_WARN("env_set_memory_maps: NULL data"); return false; }
+    const struct retro_memory_map *map = (const struct retro_memory_map *)data;
+
+    memory_maps_clear();
+
+    if (map->num_descriptors == 0 || !map->descriptors) {
+        LOG_INFO("Core registered 0 memory descriptors");
+        return true;
+    }
+
+    fe->memory_descriptors = calloc(map->num_descriptors,
+        sizeof(*fe->memory_descriptors));
+    fe->memory_addrspace_strings = calloc(map->num_descriptors,
+        sizeof(*fe->memory_addrspace_strings));
+    if (!fe->memory_descriptors ||
+        !fe->memory_addrspace_strings) {
+        memory_maps_clear();
+        return false;
+    }
+
+    for (unsigned i = 0; i < map->num_descriptors; ++i) {
+        fe->memory_descriptors[i] = map->descriptors[i];
+        if (map->descriptors[i].addrspace) {
+            fe->memory_addrspace_strings[i] =
+                SDL_strdup(map->descriptors[i].addrspace);
+            fe->memory_descriptors[i].addrspace =
+                fe->memory_addrspace_strings[i];
+        } else {
+            fe->memory_descriptors[i].addrspace = NULL;
+        }
+    }
+    fe->memory_descriptor_count = map->num_descriptors;
+
+    LOG_INFO("Core registered %u memory descriptor(s)",
+             map->num_descriptors);
+    return true;
+}
+
+static bool env_set_content_info_override(struct frontend_state *fe, void *data)
+{
+    content_overrides_clear();
+    /* NULL data is a support probe per the libretro contract. */
+    if (!data) {
+        LOG_DEBUG("Core probed SET_CONTENT_INFO_OVERRIDE support");
+        return true;
+    }
+    const struct retro_system_content_info_override *list =
+        (const struct retro_system_content_info_override *)data;
+
+    unsigned count = 0;
+    for (const struct retro_system_content_info_override *p = list;
+         p && p->extensions; ++p)
+        count++;
+
+    if (count == 0)
+        return true;
+
+    fe->content_overrides = calloc(count,
+        sizeof(*fe->content_overrides));
+    if (!fe->content_overrides)
+        return false;
+    fe->content_override_count = count;
+
+    for (unsigned i = 0; i < count; ++i) {
+        fe->content_overrides[i].extensions =
+            SDL_strdup(list[i].extensions);
+        fe->content_overrides[i].need_fullpath =
+            list[i].need_fullpath;
+        fe->content_overrides[i].persistent_data =
+            list[i].persistent_data;
+    }
+
+    LOG_INFO("Core registered %u content info override(s); frontend keeps "
+             "ROM data alive until shutdown regardless of persistent_data",
+             count);
+    return true;
+}
+
 static const struct env_handler_entry g_env_table[] = {
-    /* Trivial getters / setters migrated in R1a. Remaining handlers are
-     * still served by the legacy switch below; R1b/R1c will migrate them. */
     { RETRO_ENVIRONMENT_GET_CAN_DUPE,                     "GET_CAN_DUPE",                     env_get_can_dupe                     },
     { RETRO_ENVIRONMENT_GET_OVERSCAN,                     "GET_OVERSCAN",                     env_get_overscan                     },
     { RETRO_ENVIRONMENT_SHUTDOWN,                         "SHUTDOWN",                         env_shutdown                         },
@@ -1553,6 +2001,21 @@ static const struct env_handler_entry g_env_table[] = {
     { RETRO_ENVIRONMENT_SET_FASTFORWARDING_OVERRIDE,                           "SET_FASTFORWARDING_OVERRIDE",                           env_set_fastforwarding_override                           },
     { RETRO_ENVIRONMENT_GET_GAME_INFO_EXT,                                     "GET_GAME_INFO_EXT",                                     env_get_game_info_ext                                     },
     { RETRO_ENVIRONMENT_GET_CURRENT_SOFTWARE_FRAMEBUFFER,                      "GET_CURRENT_SOFTWARE_FRAMEBUFFER",                      env_get_current_software_framebuffer                      },
+    { RETRO_ENVIRONMENT_SET_HW_RENDER,                                         "SET_HW_RENDER",                                         env_set_hw_render                                         },
+    { RETRO_ENVIRONMENT_GET_VARIABLE,                                          "GET_VARIABLE",                                          env_get_variable                                          },
+    { RETRO_ENVIRONMENT_SET_VARIABLES,                                         "SET_VARIABLES",                                         env_set_variables                                         },
+    { RETRO_ENVIRONMENT_SET_CORE_OPTIONS,                                      "SET_CORE_OPTIONS",                                      env_set_core_options                                      },
+    { RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL,                                 "SET_CORE_OPTIONS_INTL",                                 env_set_core_options_intl                                 },
+    { RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2,                                   "SET_CORE_OPTIONS_V2",                                   env_set_core_options_v2                                   },
+    { RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL,                              "SET_CORE_OPTIONS_V2_INTL",                              env_set_core_options_v2_intl                              },
+    { RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY,                              "SET_CORE_OPTIONS_DISPLAY",                              env_set_core_options_display                              },
+    { RETRO_ENVIRONMENT_SET_CONTROLLER_INFO,                                   "SET_CONTROLLER_INFO",                                   env_set_controller_info                                   },
+    { RETRO_ENVIRONMENT_SET_DISK_CONTROL_EXT_INTERFACE,                        "SET_DISK_CONTROL_EXT_INTERFACE",                        env_set_disk_control_ext_interface                        },
+    { RETRO_ENVIRONMENT_SET_SUBSYSTEM_INFO,                                    "SET_SUBSYSTEM_INFO",                                    env_set_subsystem_info                                    },
+    { RETRO_ENVIRONMENT_SET_MEMORY_MAPS,                                       "SET_MEMORY_MAPS",                                       env_set_memory_maps                                       },
+    { RETRO_ENVIRONMENT_SET_CONTENT_INFO_OVERRIDE,                             "SET_CONTENT_INFO_OVERRIDE",                             env_set_content_info_override                             },
+    { RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS,                              "SET_SERIALIZATION_QUIRKS",                              env_set_serialization_quirks                              },
+    { RETRO_ENVIRONMENT_SET_HW_SHARED_CONTEXT,                                 "SET_HW_SHARED_CONTEXT",                                 env_set_hw_shared_context                                 },
 };
 
 static const struct env_handler_entry *env_table_lookup(unsigned cmd)
@@ -1576,552 +2039,11 @@ static const struct env_handler_entry *env_table_lookup(unsigned cmd)
 
 bool RETRO_CALLCONV core_environment(unsigned cmd, void *data)
 {
-    /* Some cores (e.g. Beetle PSX HW) call callbacks with the experimental
-     * flag OR'd in. Since we support all the experimental features the
-     * project targets, strip the flag and process the base callback. The
-     * raw value is kept for diagnostics. */
-    const unsigned raw_cmd = cmd;
-
-    /* R1: try the dispatch table first. Handlers migrated to the table
-     * short-circuit the legacy switch below. */
-    const struct env_handler_entry *entry = env_table_lookup(raw_cmd);
+    const struct env_handler_entry *entry = env_table_lookup(cmd);
     if (entry)
         return entry->handler(&g_frontend, data);
-
-    cmd &= ~RETRO_ENVIRONMENT_EXPERIMENTAL;
-
-    switch (cmd) {
-    case RETRO_ENVIRONMENT_GET_OVERSCAN:
-        /* Default: no overscan */
-        if (!require_data(cmd, data))
-            return false;
-        *(bool *)data = false;
-        return true;
-
-    case RETRO_ENVIRONMENT_GET_CAN_DUPE:
-        if (!require_data(cmd, data))
-            return false;
-        *(bool *)data = true;
-        return true;
-
-    case RETRO_ENVIRONMENT_SET_MESSAGE: {
-        if (!require_data(cmd, data))
-            return false;
-        const struct retro_message *msg = (const struct retro_message *)data;
-        LOG_INFO("[CORE] %s", msg->msg);
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_SHUTDOWN:
-        g_frontend.running = false;
-        return true;
-
-    case RETRO_ENVIRONMENT_SET_PERFORMANCE_LEVEL: {
-        if (!require_data(cmd, data))
-            return false;
-        unsigned level = *(const unsigned *)data;
-        LOG_INFO("Core performance level hint: %u", level);
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY:
-        if (!require_data(cmd, data))
-            return false;
-        *(const char **)data = g_frontend.system_directory;
-        LOG_DEBUG("Core queried system directory: %s",
-                  g_frontend.system_directory ? g_frontend.system_directory : "(null)");
-        return true;
-
-    case RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS:
-        return false;
-
-    case RETRO_ENVIRONMENT_SET_HW_RENDER:
-        if (!require_data(cmd, data))
-            return false;
-        return video_set_hw_render((struct retro_hw_render_callback *)data);
-
-    case RETRO_ENVIRONMENT_GET_VARIABLE: {
-        if (!require_data(cmd, data))
-            return false;
-        struct retro_variable *var = (struct retro_variable *)data;
-        if (!var->key)
-            return false;
-
-        const char *override = variable_table_get(&g_frontend.cli_overrides,
-                                                  var->key);
-        if (!override)
-            override = variable_table_get(&g_frontend.disk_overrides, var->key);
-        if (override) {
-            var->value = override;
-            return true;
-        }
-
-        const struct core_option *opt =
-            core_options_table_get(&g_frontend.core_options, var->key);
-        if (!opt)
-            return false;
-
-        var->value = opt->current_value ? opt->current_value : opt->default_value;
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_SET_VARIABLES: {
-        const struct retro_variable *vars = (const struct retro_variable *)data;
-        if (!vars)
-            return false;
-
-        core_options_table_clear(&g_frontend.core_options);
-
-        bool ok = true;
-        for (const struct retro_variable *v = vars; v && v->key; ++v) {
-            char desc[256];
-            core_var_parse_description(v->value, desc, sizeof(desc));
-
-            char def[256];
-            core_var_parse_default(v->value, def, sizeof(def));
-
-            const char *choices = core_var_choices_begin(v->value);
-            /* libretro spec caps choices at RETRO_NUM_CORE_OPTION_VALUES_MAX
-             * (128). Allocate one extra slot for the trailing NULL sentinel
-             * required by core_options_table_add. */
-            const char *values[RETRO_NUM_CORE_OPTION_VALUES_MAX + 1];
-            size_t val_count = 0;
-
-            if (choices) {
-                const char *p = choices;
-                while (*p) {
-                    if (val_count >= RETRO_NUM_CORE_OPTION_VALUES_MAX) {
-                        ok = false;
-                        break;
-                    }
-                    const char *end = p;
-                    while (*end && *end != '|')
-                        ++end;
-                    size_t len = (size_t)(end - p);
-                    char *choice = malloc(len + 1);
-                    if (!choice) {
-                        ok = false;
-                        break;
-                    }
-                    memcpy(choice, p, len);
-                    choice[len] = '\0';
-                    values[val_count++] = choice;
-                    if (*end == '|')
-                        ++end;
-                    p = end;
-                }
-            }
-
-            if (!ok) {
-                for (size_t i = 0; i < val_count; ++i)
-                    free((char *)values[i]);
-                break;
-            }
-            values[val_count] = NULL;
-
-            if (!core_options_table_add(&g_frontend.core_options,
-                                        v->key, desc, NULL, values, def)) {
-                ok = false;
-            }
-
-            for (size_t i = 0; i < val_count; ++i)
-                free((char *)values[i]);
-
-            if (!ok)
-                break;
-        }
-
-        if (!ok)
-            core_options_table_clear(&g_frontend.core_options);
-
-        size_t seeded = 0;
-        size_t total = core_options_table_count(&g_frontend.core_options);
-        for (size_t i = 0; i < total; ++i) {
-            const struct core_option *opt =
-                core_options_table_at(&g_frontend.core_options, i);
-            if (variable_table_get(&g_frontend.disk_overrides, opt->key))
-                continue;
-            if (variable_table_set(&g_frontend.disk_overrides,
-                                   opt->key, opt->default_value))
-                seeded++;
-        }
-
-        LOG_INFO("Core registered %zu variables (%zu seeded from defaults)",
-                 total, seeded);
-        return ok;
-    }
-
-    case RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME:
-        return true;
-
-    case RETRO_ENVIRONMENT_GET_LIBRETRO_PATH:
-        if (!require_data(cmd, data))
-            return false;
-        *(const char **)data = g_frontend.core_path;
-        return true;
-
-    case RETRO_ENVIRONMENT_GET_CORE_ASSETS_DIRECTORY:
-        if (!require_data(cmd, data))
-            return false;
-        *(const char **)data = g_frontend.core_assets_directory;
-        return true;
-
-    case RETRO_ENVIRONMENT_GET_PLAYLIST_DIRECTORY:
-        if (!require_data(cmd, data))
-            return false;
-        *(const char **)data = g_frontend.playlist_directory;
-        return true;
-
-    case RETRO_ENVIRONMENT_GET_FILE_BROWSER_START_DIRECTORY:
-        if (!require_data(cmd, data))
-            return false;
-        *(const char **)data = g_frontend.file_browser_directory;
-        return true;
-
-    case RETRO_ENVIRONMENT_SET_CONTROLLER_INFO: {
-        if (!require_data(cmd, data))
-            return false;
-        const struct retro_controller_info *info =
-            (const struct retro_controller_info *)data;
-
-        controller_ports_clear();
-
-        unsigned port = 0;
-        for (const struct retro_controller_info *p = info;
-             p && p->types && p->num_types > 0;
-             ++p, ++port) {
-            if (port >= FRONTEND_MAX_PORTS) {
-                LOG_WARN("SET_CONTROLLER_INFO: dropping ports beyond %u",
-                         (unsigned)FRONTEND_MAX_PORTS);
-                break;
-            }
-
-            struct controller_port_info *slot = &g_frontend.controller_ports[port];
-            slot->types = calloc(p->num_types, sizeof(*slot->types));
-            if (!slot->types) {
-                controller_ports_clear();
-                return false;
-            }
-            slot->num_types = p->num_types;
-
-            for (unsigned i = 0; i < p->num_types; ++i) {
-                slot->types[i].id = p->types[i].id;
-                slot->types[i].desc = p->types[i].desc
-                    ? SDL_strdup(p->types[i].desc) : NULL;
-            }
-        }
-        g_frontend.controller_port_count = port;
-
-        LOG_INFO("Core registered controller info for %u port(s):", port);
-        for (unsigned i = 0; i < port; ++i) {
-            const struct controller_port_info *slot = &g_frontend.controller_ports[i];
-            LOG_INFO("  port %u: %u device type(s)", i, slot->num_types);
-            for (unsigned t = 0; t < slot->num_types; ++t) {
-                LOG_INFO("    [%u] id=%u desc=%s",
-                         t, slot->types[t].id,
-                         slot->types[t].desc ? slot->types[t].desc : "(null)");
-            }
-        }
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_SET_DISK_CONTROL_EXT_INTERFACE: {
-        if (!require_data(cmd, data))
-            return false;
-        const struct retro_disk_control_ext_callback *cb =
-            (const struct retro_disk_control_ext_callback *)data;
-        g_frontend.disk_control = *cb;
-        g_frontend.has_disk_control = true;
-        LOG_INFO("Core registered disk control ext interface (num_images=%u)",
-                 cb->get_num_images ? cb->get_num_images() : 0);
-        disk_control_apply_initial_index();
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY: {
-        if (!require_data(cmd, data))
-            return false;
-        const struct retro_core_option_display *disp =
-            (const struct retro_core_option_display *)data;
-        if (!disp->key)
-            return false;
-        if (!core_options_table_set_visible(&g_frontend.core_options,
-                                            disp->key, disp->visible)) {
-            /* The core may toggle visibility for an option it has not yet
-             * declared (e.g. during a multi-stage SET_VARIABLES sequence).
-             * Return false so the core knows we did not record it. */
-            return false;
-        }
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_SET_CORE_OPTIONS: {
-        if (!require_data(cmd, data))
-            return false;
-        const struct retro_core_option_definition *defs =
-            (const struct retro_core_option_definition *)data;
-        core_options_table_clear(&g_frontend.core_options);
-        bool ok = add_options_from_v1_defs(defs);
-        if (!ok) {
-            core_options_table_clear(&g_frontend.core_options);
-            return false;
-        }
-        size_t seeded = seed_disk_overrides_from_defaults();
-        size_t total = core_options_table_count(&g_frontend.core_options);
-        LOG_INFO("Core registered %zu options (%zu seeded from defaults)",
-                 total, seeded);
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL: {
-        if (!require_data(cmd, data))
-            return false;
-        const struct retro_core_options_intl *opts =
-            (const struct retro_core_options_intl *)data;
-        core_options_table_clear(&g_frontend.core_options);
-        bool ok = true;
-        if (opts->us)
-            ok = add_options_from_v1_defs(opts->us);
-        if (!ok) {
-            core_options_table_clear(&g_frontend.core_options);
-            return false;
-        }
-        size_t seeded = seed_disk_overrides_from_defaults();
-        size_t total = core_options_table_count(&g_frontend.core_options);
-        LOG_INFO("Core registered %zu options (%zu seeded from defaults)",
-                 total, seeded);
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2: {
-        if (!require_data(cmd, data))
-            return false;
-        const struct retro_core_options_v2 *opts =
-            (const struct retro_core_options_v2 *)data;
-        core_options_table_clear(&g_frontend.core_options);
-        bool ok = add_options_from_v2_defs(opts->definitions);
-        if (!ok) {
-            core_options_table_clear(&g_frontend.core_options);
-            return false;
-        }
-        size_t seeded = seed_disk_overrides_from_defaults();
-        size_t total = core_options_table_count(&g_frontend.core_options);
-        LOG_INFO("Core registered %zu options (%zu seeded from defaults)",
-                 total, seeded);
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL: {
-        if (!require_data(cmd, data))
-            return false;
-        const struct retro_core_options_v2_intl *opts =
-            (const struct retro_core_options_v2_intl *)data;
-        core_options_table_clear(&g_frontend.core_options);
-        bool ok = true;
-        if (opts->us)
-            ok = add_options_from_v2_defs(opts->us->definitions);
-        if (!ok) {
-            core_options_table_clear(&g_frontend.core_options);
-            return false;
-        }
-        size_t seeded = seed_disk_overrides_from_defaults();
-        size_t total = core_options_table_count(&g_frontend.core_options);
-        LOG_INFO("Core registered %zu options (%zu seeded from defaults)",
-                 total, seeded);
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS: {
-        /* Note: SET_HW_SHARED_CONTEXT is (44 | EXPERIMENTAL), which collapses
-         * to the same case-value after we strip the experimental flag. The
-         * two are disambiguated via the raw command. SHARED_CONTEXT is
-         * data-less, while SERIALIZATION_QUIRKS expects a uint64_t*. */
-        if (raw_cmd == RETRO_ENVIRONMENT_SET_HW_SHARED_CONTEXT) {
-            g_frontend.video.hw_shared_context_requested = true;
-            LOG_INFO("Core requested shared HW context "
-                     "(honored at next GL init)");
-            return true;
-        }
-        if (!require_data(cmd, data))
-            return false;
-        uint64_t *quirks = (uint64_t *)data;
-        /* The frontend does not require the core to drop any quirks, so we
-         * leave whatever the core wrote in place. Log the declared bits so
-         * savestate misbehavior is easier to attribute. */
-        LOG_INFO("Core serialization quirks: 0x%llx",
-                 (unsigned long long)*quirks);
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_SET_SUBSYSTEM_INFO: {
-        if (!require_data(cmd, data))
-            return false;
-        const struct retro_subsystem_info *list =
-            (const struct retro_subsystem_info *)data;
-
-        subsystem_info_clear();
-
-        /* Count entries first (terminated by a zeroed-out struct). */
-        unsigned count = 0;
-        for (const struct retro_subsystem_info *p = list;
-             p && (p->desc || p->ident || p->roms || p->num_roms);
-             ++p)
-            count++;
-
-        if (count == 0) {
-            LOG_INFO("Core registered 0 subsystems");
-            return true;
-        }
-
-        g_frontend.subsystem_info = calloc(count,
-            sizeof(*g_frontend.subsystem_info));
-        if (!g_frontend.subsystem_info)
-            return false;
-        g_frontend.subsystem_info_count = count;
-
-        for (unsigned i = 0; i < count; ++i) {
-            const struct retro_subsystem_info *src = &list[i];
-            struct subsystem_storage *dst = &g_frontend.subsystem_info[i];
-            dst->desc  = src->desc  ? SDL_strdup(src->desc)  : NULL;
-            dst->ident = src->ident ? SDL_strdup(src->ident) : NULL;
-            dst->id    = src->id;
-            dst->num_roms = src->num_roms;
-            if (src->num_roms == 0)
-                continue;
-
-            dst->roms = calloc(src->num_roms, sizeof(*dst->roms));
-            if (!dst->roms) {
-                subsystem_info_clear();
-                return false;
-            }
-
-            for (unsigned j = 0; j < src->num_roms; ++j) {
-                const struct retro_subsystem_rom_info *srom = &src->roms[j];
-                struct subsystem_rom_storage *drom = &dst->roms[j];
-                drom->desc             = srom->desc
-                                         ? SDL_strdup(srom->desc) : NULL;
-                drom->valid_extensions = srom->valid_extensions
-                                         ? SDL_strdup(srom->valid_extensions)
-                                         : NULL;
-                drom->need_fullpath    = srom->need_fullpath;
-                drom->block_extract    = srom->block_extract;
-                drom->required         = srom->required;
-                drom->num_memory       = srom->num_memory;
-                if (srom->num_memory == 0)
-                    continue;
-
-                drom->memory = calloc(srom->num_memory, sizeof(*drom->memory));
-                drom->memory_extensions =
-                    calloc(srom->num_memory, sizeof(*drom->memory_extensions));
-                if (!drom->memory || !drom->memory_extensions) {
-                    subsystem_info_clear();
-                    return false;
-                }
-                for (unsigned k = 0; k < srom->num_memory; ++k) {
-                    drom->memory_extensions[k] = srom->memory[k].extension
-                        ? SDL_strdup(srom->memory[k].extension) : NULL;
-                    drom->memory[k].extension = drom->memory_extensions[k];
-                    drom->memory[k].type      = srom->memory[k].type;
-                }
-            }
-        }
-
-        LOG_INFO("Core registered %u subsystem(s):", count);
-        for (unsigned i = 0; i < count; ++i) {
-            const struct subsystem_storage *ss = &g_frontend.subsystem_info[i];
-            LOG_INFO("  [%u] id=%u ident=%s desc=%s roms=%u",
-                     i, ss->id,
-                     ss->ident ? ss->ident : "(null)",
-                     ss->desc  ? ss->desc  : "(null)",
-                     ss->num_roms);
-        }
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_SET_MEMORY_MAPS
-         & ~RETRO_ENVIRONMENT_EXPERIMENTAL: {
-        if (!require_data(cmd, data))
-            return false;
-        const struct retro_memory_map *map = (const struct retro_memory_map *)data;
-
-        memory_maps_clear();
-
-        if (map->num_descriptors == 0 || !map->descriptors) {
-            LOG_INFO("Core registered 0 memory descriptors");
-            return true;
-        }
-
-        g_frontend.memory_descriptors = calloc(map->num_descriptors,
-            sizeof(*g_frontend.memory_descriptors));
-        g_frontend.memory_addrspace_strings = calloc(map->num_descriptors,
-            sizeof(*g_frontend.memory_addrspace_strings));
-        if (!g_frontend.memory_descriptors ||
-            !g_frontend.memory_addrspace_strings) {
-            memory_maps_clear();
-            return false;
-        }
-
-        for (unsigned i = 0; i < map->num_descriptors; ++i) {
-            g_frontend.memory_descriptors[i] = map->descriptors[i];
-            if (map->descriptors[i].addrspace) {
-                g_frontend.memory_addrspace_strings[i] =
-                    SDL_strdup(map->descriptors[i].addrspace);
-                g_frontend.memory_descriptors[i].addrspace =
-                    g_frontend.memory_addrspace_strings[i];
-            } else {
-                g_frontend.memory_descriptors[i].addrspace = NULL;
-            }
-        }
-        g_frontend.memory_descriptor_count = map->num_descriptors;
-
-        LOG_INFO("Core registered %u memory descriptor(s)",
-                 map->num_descriptors);
-        return true;
-    }
-
-    case RETRO_ENVIRONMENT_SET_CONTENT_INFO_OVERRIDE: {
-        content_overrides_clear();
-        /* NULL data is a support probe per the libretro contract. */
-        if (!data) {
-            LOG_DEBUG("Core probed SET_CONTENT_INFO_OVERRIDE support");
-            return true;
-        }
-        const struct retro_system_content_info_override *list =
-            (const struct retro_system_content_info_override *)data;
-
-        unsigned count = 0;
-        for (const struct retro_system_content_info_override *p = list;
-             p && p->extensions; ++p)
-            count++;
-
-        if (count == 0)
-            return true;
-
-        g_frontend.content_overrides = calloc(count,
-            sizeof(*g_frontend.content_overrides));
-        if (!g_frontend.content_overrides)
-            return false;
-        g_frontend.content_override_count = count;
-
-        for (unsigned i = 0; i < count; ++i) {
-            g_frontend.content_overrides[i].extensions =
-                SDL_strdup(list[i].extensions);
-            g_frontend.content_overrides[i].need_fullpath =
-                list[i].need_fullpath;
-            g_frontend.content_overrides[i].persistent_data =
-                list[i].persistent_data;
-        }
-
-        LOG_INFO("Core registered %u content info override(s); frontend keeps "
-                 "ROM data alive until shutdown regardless of persistent_data",
-                 count);
-        return true;
-    }
-
-    default:
-        LOG_DEBUG("Unhandled cmd: %u (0x%x, raw 0x%x)", cmd, cmd, raw_cmd);
-        return false;
-    }
+    LOG_DEBUG("Unhandled env cmd: 0x%x", cmd);
+    return false;
 }
 
 void RETRO_CALLCONV core_video_refresh(const void *data, unsigned width,
