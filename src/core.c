@@ -405,30 +405,8 @@ void core_unload(void)
     memset(&g_core, 0, sizeof(g_core));
 }
 
-bool core_init(const char *content_path)
+static bool core_load_game(const char *content_path)
 {
-    struct retro_system_info info;
-
-    LOG_INFO("Initializing core (content: %s)",
-             content_path ? content_path : "<none>");
-
-    if (g_core.retro_api_version() != RETRO_API_VERSION) {
-        LOG_ERROR("Core API version mismatch");
-        return false;
-    }
-
-    g_core.retro_set_environment(core_environment);
-    g_core.retro_set_video_refresh(core_video_refresh);
-    g_core.retro_set_audio_sample(core_audio_sample);
-    g_core.retro_set_audio_sample_batch(core_audio_sample_batch);
-    g_core.retro_set_input_poll(core_input_poll);
-    g_core.retro_set_input_state(core_input_state);
-    g_core.retro_init();
-    g_core_initialized = true;
-
-    g_core.retro_get_system_info(&info);
-    LOG_INFO("Core: %s (v%s)", info.library_name, info.library_version);
-
     if (content_path) {
         struct retro_game_info game;
         memset(&game, 0, sizeof(game));
@@ -510,13 +488,11 @@ bool core_init(const char *content_path)
         LOG_INFO("retro_load_game(NULL) succeeded");
     }
 
-    g_core.retro_get_system_av_info(&g_av_info);
-    LOG_INFO("AV: %ux%u @ %.2f Hz, audio: %.2f Hz",
-             g_av_info.geometry.base_width,
-             g_av_info.geometry.base_height,
-             g_av_info.timing.fps,
-             g_av_info.timing.sample_rate);
+    return true;
+}
 
+static bool core_init_hw_render(void)
+{
     /* For HW cores the window was created during SET_HW_RENDER before
      * AV info was available. Resize it now that we know the real resolution. */
     if (g_frontend.video.hw_render_enabled && g_frontend.video.window) {
@@ -529,6 +505,46 @@ bool core_init(const char *content_path)
         LOG_INFO("Calling context_reset after retro_load_game...");
         g_frontend.video.hw.context_reset();
     }
+
+    return true;
+}
+
+bool core_init(const char *content_path)
+{
+    struct retro_system_info info;
+
+    LOG_INFO("Initializing core (content: %s)",
+             content_path ? content_path : "<none>");
+
+    if (g_core.retro_api_version() != RETRO_API_VERSION) {
+        LOG_ERROR("Core API version mismatch");
+        return false;
+    }
+
+    g_core.retro_set_environment(core_environment);
+    g_core.retro_set_video_refresh(core_video_refresh);
+    g_core.retro_set_audio_sample(core_audio_sample);
+    g_core.retro_set_audio_sample_batch(core_audio_sample_batch);
+    g_core.retro_set_input_poll(core_input_poll);
+    g_core.retro_set_input_state(core_input_state);
+    g_core.retro_init();
+    g_core_initialized = true;
+
+    g_core.retro_get_system_info(&info);
+    LOG_INFO("Core: %s (v%s)", info.library_name, info.library_version);
+
+    if (!core_load_game(content_path))
+        return false;
+
+    g_core.retro_get_system_av_info(&g_av_info);
+    LOG_INFO("AV: %ux%u @ %.2f Hz, audio: %.2f Hz",
+             g_av_info.geometry.base_width,
+             g_av_info.geometry.base_height,
+             g_av_info.timing.fps,
+             g_av_info.timing.sample_rate);
+
+    if (!core_init_hw_render())
+        return false;
 
     return true;
 }
