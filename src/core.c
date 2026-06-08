@@ -901,7 +901,7 @@ static bool env_set_message(struct frontend_state *fe, void *data)
     (void)fe;
     if (!data) return false;
     const struct retro_message *msg = (const struct retro_message *)data;
-    LOG_INFO("[CORE] %s", msg->msg);
+    log_emit(LOG_LEVEL_INFO, "CORE", NULL, 0, "%s", msg->msg);
     return true;
 }
 
@@ -1642,6 +1642,10 @@ static bool env_set_core_options_intl(struct frontend_state *fe, void *data)
     if (!data) { LOG_WARN("env_set_core_options_intl: NULL data"); return false; }
     const struct retro_core_options_intl *opts =
         (const struct retro_core_options_intl *)data;
+    if (opts->local && opts->local != opts->us) {
+        LOG_WARN("SET_CORE_OPTIONS_INTL: ignoring localized definitions, "
+                 "only the US variant is consumed");
+    }
     core_options_table_clear(&fe->core_options);
     bool ok = true;
     if (opts->us)
@@ -1680,6 +1684,10 @@ static bool env_set_core_options_v2_intl(struct frontend_state *fe, void *data)
     if (!data) { LOG_WARN("env_set_core_options_v2_intl: NULL data"); return false; }
     const struct retro_core_options_v2_intl *opts =
         (const struct retro_core_options_v2_intl *)data;
+    if (opts->local && opts->local != opts->us) {
+        LOG_WARN("SET_CORE_OPTIONS_V2_INTL: ignoring localized definitions, "
+                 "only the US variant is consumed");
+    }
     core_options_table_clear(&fe->core_options);
     bool ok = true;
     if (opts->us)

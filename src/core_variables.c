@@ -231,9 +231,13 @@ bool variable_table_set(struct variable_table *t,
                                            t->items, t->count,
                                            sizeof(t->items[0]), retro_var_cmp);
     if (found) {
+        if (found->value && strcmp(found->value, value) == 0)
+            return true;
         char *v = strdup(value);
         if (!v)
             return false;
+        LOG_WARN("variable_table_set: replacing existing value for key '%s'",
+                 key);
         free((char *)found->value);
         found->value = v;
         return true;
