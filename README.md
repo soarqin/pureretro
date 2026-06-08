@@ -7,21 +7,27 @@ Inspired by [sdlarch](https://github.com/heuripedes/sdlarch), PureRetro aims to 
 ## Features
 
 - Pure C + SDL3
-- CMake-based build
+- CMake-based build (dependencies via CPM)
 - Cross-platform: Windows, Linux, macOS
 - Software rendering via SDL3 textures
 - Hardware rendering: OpenGL and Vulkan
-- Keyboard-to-RetroPad input mapping
+- Keyboard-to-RetroPad input mapping (configurable)
+- Core option management (CLI overrides + runtime persistence)
+- SRAM auto-save/load (`<save_dir>/<basename>.srm`)
+- Savestate support (`--savestate <file>`)
+- VFS interface (stdio-backed, `retro_vfs_interface` v1)
+- Logging with level control (`--log-level` / `PURERETRO_LOG`)
 - No external dependencies from libretro-common (only `libretro.h`)
 
 ## Dependencies
 
-| Dependency    | Version | Required | Notes                                    |
-|---------------|---------|----------|------------------------------------------|
-| CMake         | >= 3.16 | Yes      | Build system                             |
-| SDL3          | >= 3.0  | Yes      | Video, audio, input, windowing           |
-| C Compiler    | C99+    | Yes      | GCC, Clang, or MSVC                      |
-| Vulkan SDK    | >= 1.3  | No       | Only if building with Vulkan support     |
+| Dependency    | Version | Required | Notes                                                          |
+|---------------|---------|----------|----------------------------------------------------------------|
+| CMake         | >= 3.16 | Yes      | Build system                                                   |
+| SDL3          | >= 3.0  | Yes      | Video, audio, input, windowing. Fetched via CPM by default.    |
+| C Compiler    | C99+    | Yes      | GCC, Clang, or MSVC                                            |
+| Vulkan SDK    | >= 1.3  | No       | Only if building with Vulkan support                           |
+| Unity         | 2.6.0   | No       | Test framework, fetched via CPM (only when tests are built)    |
 
 ### Platform-Specific Notes
 
@@ -51,26 +57,73 @@ brew install cmake sdl3
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/pureretro.git
+git clone https://github.com/soarqin/pureretro.git
 cd pureretro
 
-# Configure
-mkdir build && cd build
-cmake ..
+# Configure (out-of-source)
+cmake -S . -B build/
 
-# Build
-cmake --build .
+# Build (only the pureretro executable; tests are excluded from the default target)
+cmake --build build/ --parallel
 ```
 
 ### Build Options
 
-| Option                    | Default | Description                          |
-|---------------------------|---------|--------------------------------------|
-| `PURERETRO_ENABLE_VULKAN` | `ON`    | Enable Vulkan hardware renderer      |
+| Option                          | Default | Description                                                        |
+|---------------------------------|---------|--------------------------------------------------------------------|
+| `PURERETRO_ENABLE_VULKAN`       | `ON`    | Enable Vulkan hardware renderer.                                   |
+| `PURERETRO_BUILD_TESTS`         | `ON`    | Add the `tests/` subtree (test targets remain excluded from `all`).|
+| `PURERETRO_PREFER_SYSTEM_SDL3`  | `OFF`   | Try `find_package(SDL3 CONFIG)` first; fall back to CPM otherwise. |
 
-To disable Vulkan support:
+Examples:
+
 ```bash
-cmake .. -DPURERETRO_ENABLE_VULKAN=OFF
+# Disable Vulkan
+cmake -S . -B build/ -DPURERETRO_ENABLE_VULKAN=OFF
+
+# Use a system-installed SDL3 if available
+cmake -S . -B build/ -DPURERETRO_PREFER_SYSTEM_SDL3=ON
+
+# Skip pulling Unity / configuring tests entirely
+cmake -S . -B build/ -DPURERETRO_BUILD_TESTS=OFF
+```
+
+## Testing
+
+Unit tests live under `tests/unit/` and use the [Unity](https://www.throwtheswitch.org/unity) framework (fetched via CPM). All test targets are `EXCLUDE_FROM_ALL`, so a default `cmake --build` only links `pureretro`. Tests are built on demand by `ctest`:
+
+```bash
+ctest --test-dir build/ --output-on-failure
+```
+
+Current coverage:
+
+- `test_smoke` — Unity wiring smoke test.
+- `test_vfs` — `vfs.c` open/seek/read/write/tell/close contract tests against real temporary files.
+
+Subsystems requiring a live SDL/GL/Vulkan context are intentionally not unit-tested.
+
+## Project Layout
+
+```
+src/
+  main.c                     # entry point, CLI parsing (table-driven)
+  core.c / core.h            # libretro core loader + environment dispatch table
+  core_variables*.c/.h       # core option storage + definition parsing
+  video.c / video.h          # renderer-agnostic windowing + dispatch
+  video_sw.c                 # software renderer (SDL3 texture)
+  video_gl.c                 # OpenGL renderer (FBO + presentation blit)
+  video_vk.c                 # Vulkan renderer (instance, device, swapchain)
+  audio.c / audio.h          # SDL3 audio stream + buffer status callback
+  input.c / input.h          # keyboard -> RetroPad bitmask mapping
+  vfs.c / vfs.h              # retro_vfs_interface v1 implementation
+  log.c / log.h              # level-aware logger
+  frontend.h                 # shared typedefs and global state
+include/
+  libretro.h                 # upstream libretro API header (only file used)
+tests/unit/                  # Unity-based tests (EXCLUDE_FROM_ALL)
+cmake/
+  Dependencies.cmake         # CPM + SDL3/Unity resolution
 ```
 
 ## Usage

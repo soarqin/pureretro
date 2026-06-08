@@ -46,14 +46,37 @@ This separation keeps each renderer self-contained and easier to reason about in
 ### Module Map
 
 ```
-main            ->  core, video, audio, input, frontend
+main            ->  core, video, audio, input, frontend, vfs, log
 video           ->  video_backend (vtable) -> video_sw, video_gl, video_vk
-core            ->  libretro.h, frontend, core_variables
+core            ->  libretro.h, frontend, core_variables, log
 core_variables  ->  libretro.h, frontend, core_variables_parse
-audio           ->  SDL3
-input           ->  SDL3
+audio           ->  SDL3, log
+input           ->  SDL3, log
+vfs             ->  libretro.h, log
+log             ->  SDL3
 frontend        ->  (shared typedefs and globals)
 ```
+
+### Dispatch Tables
+
+Two large, formerly-monolithic functions are now table-driven; this is the
+preferred extension pattern for new additions:
+
+- `core.c::g_env_table[]` — 73 entries dispatching `retro_environment_t`
+  callbacks to one `static bool env_*(struct frontend_state *fe, void *data)`
+  handler each. Lookup is two-pass: raw `cmd` first (exact match), then
+  `cmd & ~RETRO_ENVIRONMENT_EXPERIMENTAL`. This lets a single numeric value
+  shared by an EXPERIMENTAL alias and a stable command be routed to two
+  different handlers (e.g. `SET_HW_SHARED_CONTEXT` 44 vs. an EXP-44 sibling).
+  `core_environment` itself is ~10 lines: table lookup + invoke + default
+  `LOG_DEBUG("unhandled %u")` branch.
+- `main.c::g_cli_options[]` — 19 entries dispatching CLI flags to one
+  `static bool cli_*(const char *arg, struct frontend_state *cfg)` handler
+  each, plus a `wants_arg` flag and `help` text. `parse_args` is ~42 lines
+  and contains no per-flag logic.
+
+To add a new env callback or CLI flag: write one `static` handler + one row
+in the corresponding table. Do not reintroduce switch/if-else chains.
 
 ### No libretro-common Policy
 
@@ -238,24 +261,43 @@ CLI-usage output remains direct `fprintf(stderr, ...)`.
 
 ## Testing
 
-Unit tests live under `tests/unit/` and use the Unity framework (pulled via CPM).
-Dependencies are managed by `cmake/Dependencies.cmake`. SDL3 may be resolved
-from the system (`-DPURERETRO_PREFER_SYSTEM_SDL3=ON`) or fetched via CPM
-(default). Build and run:
+Unit tests live under `tests/unit/` and use the Unity framework (pulled via
+CPM). Dependencies are managed by `cmake/Dependencies.cmake`. SDL3 may be
+resolved from the system (`-DPURERETRO_PREFER_SYSTEM_SDL3=ON`) or fetched
+via CPM (default).
+
+Test targets are declared with `EXCLUDE_FROM_ALL`, so a default
+`cmake --build` only links `pureretro`. `ctest` triggers the per-test build
+on demand via a CMake test fixture that resolves to the executable's
+generator expression. Build and run:
 
 ```bash
 cmake -S . -B build/
-cmake --build build/ --parallel
-ctest --test-dir build/ --output-on-failure
+cmake --build build/ --parallel          # builds only pureretro
+ctest --test-dir build/ --output-on-failure  # builds + runs the tests
 ```
 
-To skip tests entirely: `-DPURERETRO_BUILD_TESTS=OFF`.
+Tests can be disabled entirely with `-DPURERETRO_BUILD_TESTS=OFF`
+(default ON; the option only adds the `tests/` subtree, it does not
+attach tests to `all`).
 
-Currently `tests/unit/` contains a smoke test only. Upcoming work
-will add coverage for pure-function modules: `core_variables_parse`,
-`core_variables`, `vfs` (real tmp files), `log_level_from_string`,
-`input` keymap parser, CLI `parse_cli`. Subsystems requiring live
-SDL/GL/Vulkan context are intentionally not unit-tested.
+Current coverage:
+
+- `tests/unit/test_smoke.c` — Unity wiring smoke test.
+- `tests/unit/test_vfs.c` — `vfs.c` open/seek/read/write/tell/close
+  contract tests against real `tmpfile()`-style files.
+
+Pure-function modules that remain on the queue: `core_variables_parse`,
+`core_variables`, `log_level_from_string`, `input` keymap parser, CLI
+`parse_cli`. Subsystems requiring live SDL/GL/Vulkan context are
+intentionally not unit-tested.
+
+When adding a new test:
+
+1. Drop `test_xxx.c` into `tests/unit/` (and any frontend `.c` it links).
+2. Add one line: `add_pureretro_test(test_xxx test_xxx.c ${CMAKE_SOURCE_DIR}/src/<dep>.c)`.
+3. `add_pureretro_test` already applies `EXCLUDE_FROM_ALL` and registers
+   the test with the build-on-demand fixture; no extra wiring needed.
 
 ## Agent Workflow
 
