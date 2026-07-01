@@ -522,13 +522,15 @@ static void vk_set_image(void *handle, const struct retro_vulkan_image *image,
         image->image_view != ctx->dbg_last_image_view ||
         image->image_layout != ctx->dbg_last_layout ||
         image->create_info.format != ctx->dbg_last_format) {
-        LOG_DEBUG("Vulkan set_image #%llu: image=%p view=%p layout=%d format=%d levels=%u layers=%u sem=%u src_q=%u",
+        LOG_DEBUG("Vulkan set_image #%llu: image=%p view=%p layout=%d format=%d mip=%u+%u layer=%u+%u sem=%u src_q=%u",
                   (unsigned long long)ctx->dbg_set_image_count,
                   (void *)(uintptr_t)image->create_info.image,
                   (void *)(uintptr_t)image->image_view,
                   (int)image->image_layout,
                   (int)image->create_info.format,
+                  image->create_info.subresourceRange.baseMipLevel,
                   image->create_info.subresourceRange.levelCount,
+                  image->create_info.subresourceRange.baseArrayLayer,
                   image->create_info.subresourceRange.layerCount,
                   num_semaphores,
                   src_queue_family);
@@ -818,6 +820,16 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
         height = ctx->last_frame_height;
     }
 
+    if (width != ctx->dbg_last_present_width ||
+        height != ctx->dbg_last_present_height) {
+        LOG_DEBUG("Vulkan present dimensions changed: %ux%u (frame_valid=%d image=%p layout=%d)",
+                  width, height, frame_valid ? 1 : 0,
+                  (void *)(uintptr_t)ctx->pending_image.create_info.image,
+                  (int)ctx->pending_image.image_layout);
+        ctx->dbg_last_present_width = width;
+        ctx->dbg_last_present_height = height;
+    }
+
     /* I-2: if a previous present/acquire reported the swapchain
      * out-of-date or suboptimal, rebuild it before doing anything
      * else this frame. */
@@ -889,6 +901,14 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
      * results, which we treat as the core's responsibility. */
     VkImage core_image = ctx->pending_image.create_info.image;
     VkImageLayout core_layout = ctx->pending_image.image_layout;
+    VkImageSubresourceRange core_range =
+        ctx->pending_image.create_info.subresourceRange;
+    if (core_range.aspectMask == 0)
+        core_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    if (core_range.levelCount == 0)
+        core_range.levelCount = 1;
+    if (core_range.layerCount == 0)
+        core_range.layerCount = 1;
 
     /* Transition swapchain image to TRANSFER_DST_OPTIMAL */
     VkImageMemoryBarrier barrier = {0};
@@ -955,6 +975,7 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
                                       ? ctx->queue_family_index
                                       : VK_QUEUE_FAMILY_IGNORED;
         barrier.image = core_image;
+        barrier.subresourceRange = core_range;
         barrier.srcAccessMask = transfer_core_ownership
                                 ? 0
                                 : VK_ACCESS_MEMORY_WRITE_BIT;
@@ -986,9 +1007,9 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
     int32_t dst_h = (int32_t)dst_h_i;
 
     VkImageBlit blit = {0};
-    blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    blit.srcSubresource.mipLevel = 0;
-    blit.srcSubresource.baseArrayLayer = 0;
+    blit.srcSubresource.aspectMask = core_range.aspectMask;
+    blit.srcSubresource.mipLevel = core_range.baseMipLevel;
+    blit.srcSubresource.baseArrayLayer = core_range.baseArrayLayer;
     blit.srcSubresource.layerCount = 1;
     blit.srcOffsets[0].x = 0;
     blit.srcOffsets[0].y = 0;
@@ -1053,6 +1074,11 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.image = ctx->swapchain_images[image_index];
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = 1;
     barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     barrier.dstAccessMask = 0;
 
@@ -1090,6 +1116,7 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
                                       ? core_queue_family
                                       : VK_QUEUE_FAMILY_IGNORED;
         barrier.image = core_image;
+        barrier.subresourceRange = core_range;
         barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
         barrier.dstAccessMask = transfer_core_ownership
                                 ? 0

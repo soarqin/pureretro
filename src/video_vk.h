@@ -102,6 +102,8 @@ struct video_vk_context
     VkFormat dbg_last_format;
     uint32_t dbg_last_cmd_count;
     uint32_t dbg_last_wait_count;
+    unsigned dbg_last_present_width;
+    unsigned dbg_last_present_height;
 
     /* Cached proc addresses */
     PFN_vkGetInstanceProcAddr get_instance_proc_addr;
