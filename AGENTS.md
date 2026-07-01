@@ -12,9 +12,10 @@ PureRetro is a **minimal libretro frontend**. It is educational by design — ev
 |-------|--------|-------------|
 | Phase 1 | ✅ Complete | Project skeleton, documentation, CMake build system, latest `libretro.h` |
 | Phase 2 | ✅ Complete | Software-only working frontend: core loading, video (SDL3 texture), audio (SDL3 stream), input (keyboard → RetroPad) |
-| Phase 3 | ✅ Complete | OpenGL hardware rendering: context creation, FBO management, presentation blit, context lifecycle (`docs/PLANNED_WORK.md`) |
-| Phase 4 | ✅ Complete | Vulkan hardware rendering: instance, device, swapchain, presentation blit, libretro interface (`docs/PLANNED_WORK.md`) |
-| Phase 5 | ✅ Complete | Cross-platform polish and testing (`docs/PLANNED_WORK.md`) |
+| Phase 3 | ✅ Complete | OpenGL hardware rendering: context creation, FBO management, presentation blit, context lifecycle |
+| Phase 4 | ✅ Complete | Vulkan hardware rendering: instance, device, swapchain, presentation blit, libretro interface |
+| Phase 5 | ✅ Complete | Cross-platform polish and testing |
+| Phase 6 | 🔄 In progress | 6.1 runtime validation matrix (`docs/RUNTIME_VALIDATION.md`); 6.2 unit tests ✅; 6.3 `main.c` split ✅ |
 
 ### Verified Build Targets
 - **Linux (GCC 13.3, Clang 22, Ubuntu 24.04)**: ✅ Builds and links successfully
@@ -170,7 +171,7 @@ bool frontend_is_running(void)
 
 ## Environment Callbacks
 
-The `core.c` module implements the frontend's `retro_environment_t`. The table below lists callbacks that have explicit case branches; everything else falls through to the `default` arm (logged and returns false). For the full inventory and future work, see `docs/DEVELOPMENT_PLAN.md`.
+The `core.c` module implements the frontend's `retro_environment_t`. The table below lists callbacks that have explicit case branches; everything else falls through to the `default` arm (logged and returns false).
 
 | Callback | Status | Notes |
 |----------|--------|-------|
