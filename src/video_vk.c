@@ -946,10 +946,27 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
     if (src_height == 0) src_height = (int32_t)ctx->swapchain_extent.height;
 
     int dst_x_i, dst_y_i, dst_w_i, dst_h_i;
-    fit_aspect((unsigned)src_width, (unsigned)src_height,
-               (int)ctx->swapchain_extent.width,
-               (int)ctx->swapchain_extent.height,
-               &dst_x_i, &dst_y_i, &dst_w_i, &dst_h_i);
+    float display_aspect = g_av_info.geometry.aspect_ratio;
+    if (!(display_aspect > 0.0f))
+        display_aspect = (float)src_width / (float)src_height;
+
+    float output_aspect = (float)ctx->swapchain_extent.width /
+                          (float)ctx->swapchain_extent.height;
+    if (display_aspect > output_aspect) {
+        dst_w_i = (int)ctx->swapchain_extent.width;
+        dst_h_i = (int)((float)dst_w_i / display_aspect);
+        if (dst_h_i < 1)
+            dst_h_i = 1;
+        dst_x_i = 0;
+        dst_y_i = ((int)ctx->swapchain_extent.height - dst_h_i) / 2;
+    } else {
+        dst_h_i = (int)ctx->swapchain_extent.height;
+        dst_w_i = (int)((float)dst_h_i * display_aspect);
+        if (dst_w_i < 1)
+            dst_w_i = 1;
+        dst_x_i = ((int)ctx->swapchain_extent.width - dst_w_i) / 2;
+        dst_y_i = 0;
+    }
     int32_t dst_x = (int32_t)dst_x_i;
     int32_t dst_y = (int32_t)dst_y_i;
     int32_t dst_w = (int32_t)dst_w_i;
