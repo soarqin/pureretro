@@ -93,20 +93,6 @@ struct video_vk_context
      * acquiring an image. */
     bool swapchain_dirty;
 
-    /* Debug counters/state for diagnosing long-run presentation failures. */
-    uint64_t dbg_set_image_count;
-    uint64_t dbg_present_count;
-    uint64_t dbg_duplicate_present_count;
-    uint64_t dbg_no_image_skip_count;
-    VkImage dbg_last_image;
-    VkImageView dbg_last_image_view;
-    VkImageLayout dbg_last_layout;
-    VkFormat dbg_last_format;
-    uint32_t dbg_last_cmd_count;
-    uint32_t dbg_last_wait_count;
-    unsigned dbg_last_present_width;
-    unsigned dbg_last_present_height;
-
     /* Cached proc addresses */
     PFN_vkGetInstanceProcAddr get_instance_proc_addr;
     PFN_vkGetDeviceProcAddr get_device_proc_addr;
@@ -125,6 +111,9 @@ bool video_vk_init(SDL_Window *window, struct retro_hw_render_callback *hw,
 
 /* Destroy the Vulkan renderer and all Vulkan resources. */
 void video_vk_destroy(struct video_vk_context *ctx);
+
+/* Notify the core before the Vulkan context/device is destroyed. */
+void video_vk_context_destroy(struct video_vk_context *ctx);
 
 /* Present a hardware-rendered frame. frame_valid is true when the core passed
  * RETRO_HW_FRAME_BUFFER_VALID, false for duplicate-frame NULL refreshes. */

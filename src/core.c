@@ -378,9 +378,20 @@ void core_unload(void)
      * Both calls are also guarded by g_game_loaded / g_core_initialized
      * so a failed core_init() that bails out partway does not invoke
      * either function with an unpaired or out-of-order lifecycle. */
+    if (g_frontend.video.hw_render_enabled)
+        video_context_destroy();
+
     if (g_game_loaded && g_core.retro_unload_game)
         g_core.retro_unload_game();
     g_game_loaded = false;
+
+    /* Hardware backends may own callbacks into the core (notably Vulkan's
+     * destroy_device from the negotiation interface). Destroy them before
+     * retro_deinit()/SDL_UnloadObject so those callbacks and core-side GPU
+     * allocators are still valid. frontend_shutdown() calls video_shutdown()
+     * again later; it is a no-op once the backend/window pointers are NULL. */
+    if (g_frontend.video.hw_render_enabled && g_frontend.video.backend_ctx)
+        video_shutdown();
 
     if (g_core_initialized && g_core.retro_deinit)
         g_core.retro_deinit();
