@@ -91,6 +91,18 @@ struct video_vk_context
      * acquiring an image. */
     bool swapchain_dirty;
 
+    /* Debug counters/state for diagnosing long-run presentation failures. */
+    uint64_t dbg_set_image_count;
+    uint64_t dbg_present_count;
+    uint64_t dbg_duplicate_present_count;
+    uint64_t dbg_no_image_skip_count;
+    VkImage dbg_last_image;
+    VkImageView dbg_last_image_view;
+    VkImageLayout dbg_last_layout;
+    VkFormat dbg_last_format;
+    uint32_t dbg_last_cmd_count;
+    uint32_t dbg_last_wait_count;
+
     /* Cached proc addresses */
     PFN_vkGetInstanceProcAddr get_instance_proc_addr;
     PFN_vkGetDeviceProcAddr get_device_proc_addr;

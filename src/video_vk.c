@@ -517,6 +517,27 @@ static void vk_set_image(void *handle, const struct retro_vulkan_image *image,
     if (!ctx || !image)
         return;
 
+    ctx->dbg_set_image_count++;
+    if (image->create_info.image != ctx->dbg_last_image ||
+        image->image_view != ctx->dbg_last_image_view ||
+        image->image_layout != ctx->dbg_last_layout ||
+        image->create_info.format != ctx->dbg_last_format) {
+        LOG_DEBUG("Vulkan set_image #%llu: image=%p view=%p layout=%d format=%d levels=%u layers=%u sem=%u src_q=%u",
+                  (unsigned long long)ctx->dbg_set_image_count,
+                  (void *)(uintptr_t)image->create_info.image,
+                  (void *)(uintptr_t)image->image_view,
+                  (int)image->image_layout,
+                  (int)image->create_info.format,
+                  image->create_info.subresourceRange.levelCount,
+                  image->create_info.subresourceRange.layerCount,
+                  num_semaphores,
+                  src_queue_family);
+        ctx->dbg_last_image = image->create_info.image;
+        ctx->dbg_last_image_view = image->image_view;
+        ctx->dbg_last_layout = image->image_layout;
+        ctx->dbg_last_format = image->create_info.format;
+    }
+
     ctx->pending_image = *image;
     ctx->pending_src_queue_family = src_queue_family;
     ctx->pending_wait_semaphore_count = 0;
@@ -533,6 +554,12 @@ static void vk_set_image(void *handle, const struct retro_vulkan_image *image,
                     ctx->pending_wait_semaphore_count++] = semaphores[i];
             }
         }
+    }
+
+    if (ctx->pending_wait_semaphore_count != ctx->dbg_last_wait_count) {
+        LOG_DEBUG("Vulkan core wait semaphores: %u",
+                  ctx->pending_wait_semaphore_count);
+        ctx->dbg_last_wait_count = ctx->pending_wait_semaphore_count;
     }
 
     ctx->has_pending_image = true;
@@ -609,6 +636,12 @@ static void vk_set_command_buffers(void *handle, uint32_t num_cmd,
             ctx->pending_command_buffers[
                 ctx->pending_command_buffer_count++] = cmd[i];
         }
+    }
+
+    if (ctx->pending_command_buffer_count != ctx->dbg_last_cmd_count) {
+        LOG_DEBUG("Vulkan core command buffers: %u",
+                  ctx->pending_command_buffer_count);
+        ctx->dbg_last_cmd_count = ctx->pending_command_buffer_count;
     }
 }
 
@@ -743,8 +776,39 @@ void video_vk_destroy(struct video_vk_context *ctx)
 void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned height,
                       bool frame_valid)
 {
-    if (!ctx || ctx->pending_image.create_info.image == VK_NULL_HANDLE)
+    if (!ctx)
         return;
+
+    if (ctx->pending_image.create_info.image == VK_NULL_HANDLE) {
+        ctx->dbg_no_image_skip_count++;
+        if (ctx->dbg_no_image_skip_count == 1 ||
+            (ctx->dbg_no_image_skip_count % 300) == 0) {
+            LOG_DEBUG("Vulkan present skipped: no core image (skips=%llu presents=%llu set_image=%llu)",
+                      (unsigned long long)ctx->dbg_no_image_skip_count,
+                      (unsigned long long)ctx->dbg_present_count,
+                      (unsigned long long)ctx->dbg_set_image_count);
+        }
+        return;
+    }
+
+    ctx->dbg_present_count++;
+    if (!frame_valid)
+        ctx->dbg_duplicate_present_count++;
+    if ((ctx->dbg_present_count % 300) == 0) {
+        LOG_DEBUG("Vulkan present #%llu: valid=%d dup=%llu image=%p layout=%d size=%ux%u frame=%u set_image=%llu cmd=%u wait=%u dirty=%d",
+                  (unsigned long long)ctx->dbg_present_count,
+                  frame_valid ? 1 : 0,
+                  (unsigned long long)ctx->dbg_duplicate_present_count,
+                  (void *)(uintptr_t)ctx->pending_image.create_info.image,
+                  (int)ctx->pending_image.image_layout,
+                  width,
+                  height,
+                  ctx->frame_index,
+                  (unsigned long long)ctx->dbg_set_image_count,
+                  ctx->pending_command_buffer_count,
+                  ctx->pending_wait_semaphore_count,
+                  ctx->swapchain_dirty ? 1 : 0);
+    }
 
     if (width > 0 && height > 0) {
         ctx->last_frame_width = width;
@@ -779,6 +843,8 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
         ctx->image_available[frame_idx], VK_NULL_HANDLE, &image_index);
 
     if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR) {
+        LOG_WARN("vkAcquireNextImageKHR returned %s; marking swapchain dirty",
+                 vk_result_string(r));
         /* Defer recreation to next present so the image_available
          * semaphore from this aborted acquire is not lost. */
         ctx->swapchain_dirty = true;
@@ -786,6 +852,7 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
         return;
     }
     if (!vk_check(r, "vkAcquireNextImageKHR")) {
+        LOG_ERROR("Vulkan present aborted after acquire failure (context/device may be lost)");
         vk_clear_pending_frame(ctx);
         return;
     }
@@ -1101,8 +1168,15 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
     submit_info.pSignalSemaphores = signal_semaphores;
 
     vkResetFences(ctx->device, 1, &ctx->frame_fence[frame_idx]);
-    if (!vk_check(vkQueueSubmit(ctx->graphics_queue, 1, &submit_info,
-                                ctx->frame_fence[frame_idx]), "vkQueueSubmit")) {
+    VkResult submit_result = vkQueueSubmit(ctx->graphics_queue, 1, &submit_info,
+                                           ctx->frame_fence[frame_idx]);
+    if (!vk_check(submit_result, "vkQueueSubmit")) {
+        LOG_ERROR("Vulkan queue submit failed at present #%llu (set_image=%llu valid=%d cmd=%u wait=%u)",
+                  (unsigned long long)ctx->dbg_present_count,
+                  (unsigned long long)ctx->dbg_set_image_count,
+                  frame_valid ? 1 : 0,
+                  ctx->pending_command_buffer_count,
+                  wait_count);
         VkFence old_fence = ctx->frame_fence[frame_idx];
         for (uint32_t i = 0; i < ctx->image_count; ++i) {
             if (ctx->images_in_flight[i] == old_fence)
@@ -1136,10 +1210,14 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
 
     r = vkQueuePresentKHR(ctx->graphics_queue, &present_info);
     if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR) {
+        LOG_WARN("vkQueuePresentKHR returned %s; marking swapchain dirty",
+                 vk_result_string(r));
         /* Driver wants a new swapchain; rebuild on next present. */
         ctx->swapchain_dirty = true;
-    } else {
-        vk_check(r, "vkQueuePresentKHR");
+    } else if (!vk_check(r, "vkQueuePresentKHR")) {
+        LOG_ERROR("Vulkan present failed at present #%llu (set_image=%llu); context/device may be lost",
+                  (unsigned long long)ctx->dbg_present_count,
+                  (unsigned long long)ctx->dbg_set_image_count);
     }
 
     ctx->frame_index++;
