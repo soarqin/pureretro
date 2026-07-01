@@ -861,13 +861,19 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
                                   ? ctx->queue_family_index
                                   : VK_QUEUE_FAMILY_IGNORED;
     barrier.image = core_image;
+    /* Cores are free to produce the libretro image with graphics, compute,
+     * transfer, or mixed pipelines. mednafen/beetle PSX HW in particular
+     * creates compute pipelines during scene transitions, so a
+     * COLOR_ATTACHMENT_OUTPUT-only dependency can miss shader writes and
+     * present stale/black data. Use a conservative all-commands memory
+     * dependency before our presentation blit. */
     barrier.srcAccessMask = transfer_core_ownership
                             ? 0
-                            : VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+                            : VK_ACCESS_MEMORY_WRITE_BIT;
     barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
 
     vkCmdPipelineBarrier(cmd,
-                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                         VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
                          VK_PIPELINE_STAGE_TRANSFER_BIT,
                          0,
                          0, NULL,
@@ -981,11 +987,11 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
     barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
     barrier.dstAccessMask = transfer_core_ownership
                             ? 0
-                            : VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+                            : (VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT);
 
     vkCmdPipelineBarrier(cmd,
                          VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                         VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
                          0,
                          0, NULL,
                          0, NULL,
