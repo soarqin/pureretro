@@ -542,6 +542,11 @@ static void vk_clear_pending_frame(struct video_vk_context *ctx)
 {
     if (!ctx)
         return;
+
+    /* Keep pending_image cached. Several hardware cores use libretro's
+     * duplicate-frame convention and call video_refresh(NULL, 0, 0, 0)
+     * without a fresh set_image(); the frontend must re-present the last
+     * image in that case. Only per-frame sync/cmd state is consumed here. */
     ctx->has_pending_image = false;
     ctx->pending_wait_semaphore_count = 0;
     ctx->pending_command_buffer_count = 0;
@@ -737,8 +742,16 @@ void video_vk_destroy(struct video_vk_context *ctx)
 
 void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned height)
 {
-    if (!ctx || !ctx->has_pending_image)
+    if (!ctx || ctx->pending_image.create_info.image == VK_NULL_HANDLE)
         return;
+
+    if (width > 0 && height > 0) {
+        ctx->last_frame_width = width;
+        ctx->last_frame_height = height;
+    } else if (ctx->last_frame_width > 0 && ctx->last_frame_height > 0) {
+        width = ctx->last_frame_width;
+        height = ctx->last_frame_height;
+    }
 
     /* I-2: if a previous present/acquire reported the swapchain
      * out-of-date or suboptimal, rebuild it before doing anything

@@ -79,6 +79,12 @@ struct video_vk_context
     VkSemaphore pending_signal_semaphore;
     bool has_pending_image;
 
+    /* Last non-zero libretro frame dimensions. Hardware cores may submit
+     * duplicate frames as video_refresh(NULL, 0, 0, 0) without a fresh
+     * set_image(); keep using the previous Vulkan image and dimensions. */
+    unsigned last_frame_width;
+    unsigned last_frame_height;
+
     /* Set when vkAcquireNextImageKHR / vkQueuePresentKHR returns
      * VK_ERROR_OUT_OF_DATE_KHR or VK_SUBOPTIMAL_KHR. The next
      * video_vk_present() call recreates the swapchain before
