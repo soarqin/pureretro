@@ -49,6 +49,10 @@ struct video_gl_context
     bool bottom_left_origin;     /* copied from hw->bottom_left_origin */
 };
 
+/* Configure SDL's OpenGL attributes before creating an OpenGL window/context.
+ * 'hw' describes the core's requested GL context parameters. */
+bool video_gl_prepare_context_attributes(const struct retro_hw_render_callback *hw);
+
 /* Initialize the OpenGL renderer for the given window.
  * 'hw' describes the core's requested GL context parameters. */
 bool video_gl_init(SDL_Window *window, struct retro_hw_render_callback *hw,

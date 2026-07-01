@@ -58,6 +58,94 @@ typedef PFNGLBLITFRAMEBUFFERPROC PFNGLBlitFramebufferPROC;
 
 static void gl_fbo_destroy(struct video_gl_context *ctx);
 
+bool video_gl_prepare_context_attributes(const struct retro_hw_render_callback *hw)
+{
+    if (!hw) {
+        LOG_ERROR("OpenGL: missing hw render callback");
+        return false;
+    }
+
+    SDL_GL_ResetAttributes();
+
+    LOG_INFO("OpenGL request: type=%d version=%u.%u depth=%d stencil=%d bottom_left=%d debug=%d",
+             (int)hw->context_type,
+             hw->version_major,
+             hw->version_minor,
+             hw->depth ? 1 : 0,
+             hw->stencil ? 1 : 0,
+             hw->bottom_left_origin ? 1 : 0,
+             hw->debug_context ? 1 : 0);
+
+    switch (hw->context_type) {
+    case RETRO_HW_CONTEXT_OPENGL:
+        /* Legacy desktop OpenGL requests commonly leave version_major/minor
+         * at 0 to mean "give me the platform default compatibility context".
+         * Do not pass 0.0 to SDL/WGL: drivers reject that on Windows. */
+        if (hw->version_major > 0) {
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION,
+                                (int)hw->version_major);
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION,
+                                (int)hw->version_minor);
+        }
+        if (hw->version_major > 3 ||
+            (hw->version_major == 3 && hw->version_minor >= 2)) {
+#ifdef __APPLE__
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
+                                SDL_GL_CONTEXT_PROFILE_CORE);
+#else
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
+                                SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
+#endif
+        }
+        /* Else: legacy/default OpenGL context. Leave the profile unset;
+         * requesting a profile with a pre-3.2 or unspecified version is
+         * invalid on several WGL drivers. */
+        break;
+
+    case RETRO_HW_CONTEXT_OPENGL_CORE:
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION,
+                            hw->version_major > 0 ? (int)hw->version_major : 3);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION,
+                            hw->version_major > 0 ? (int)hw->version_minor : 2);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
+                            SDL_GL_CONTEXT_PROFILE_CORE);
+        break;
+
+    case RETRO_HW_CONTEXT_OPENGLES2:
+    case RETRO_HW_CONTEXT_OPENGLES3:
+    case RETRO_HW_CONTEXT_OPENGLES_VERSION:
+#ifdef __APPLE__
+        LOG_ERROR("OpenGL ES not supported on macOS");
+        return false;
+#else
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION,
+                            hw->version_major > 0 ? (int)hw->version_major :
+                            (hw->context_type == RETRO_HW_CONTEXT_OPENGLES2 ? 2 : 3));
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION,
+                            hw->version_major > 0 ? (int)hw->version_minor : 0);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
+                            SDL_GL_CONTEXT_PROFILE_ES);
+#endif
+        break;
+
+    default:
+        LOG_ERROR("Unsupported HW context type: %d", hw->context_type);
+        return false;
+    }
+
+    if (hw->debug_context)
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_DEBUG_FLAG);
+
+    /* Honor RETRO_ENVIRONMENT_SET_HW_SHARED_CONTEXT: cores using this hint
+     * expect to be able to share resources (e.g. video-decode textures)
+     * with the current GL context. SDL only consults this attribute at
+     * creation time; setting it is a no-op when no current context exists. */
+    if (g_frontend.video.hw_shared_context_requested)
+        SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT, 1);
+
+    return true;
+}
+
 static bool gl_fbo_create(struct video_gl_context *ctx, unsigned width, unsigned height,
                             bool need_depth, bool need_stencil)
 {
@@ -185,58 +273,9 @@ bool video_gl_init(SDL_Window *window, struct retro_hw_render_callback *hw,
     if (!ctx)
         return false;
 
-    /* Set GL attributes before creating the context. */
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, (int)hw->version_major);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, (int)hw->version_minor);
-
-    switch (hw->context_type) {
-    case RETRO_HW_CONTEXT_OPENGL:
-#ifdef __APPLE__
-        if (hw->version_major > 3 ||
-            (hw->version_major == 3 && hw->version_minor >= 2)) {
-            SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
-                                SDL_GL_CONTEXT_PROFILE_CORE);
-        }
-        /* else: macOS legacy 2.1 — no profile mask */
-#else
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
-                            SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
-#endif
-        break;
-
-    case RETRO_HW_CONTEXT_OPENGL_CORE:
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
-                            SDL_GL_CONTEXT_PROFILE_CORE);
-        break;
-
-    case RETRO_HW_CONTEXT_OPENGLES2:
-    case RETRO_HW_CONTEXT_OPENGLES3:
-    case RETRO_HW_CONTEXT_OPENGLES_VERSION:
-#ifdef __APPLE__
-        LOG_ERROR("OpenGL ES not supported on macOS");
+    if (!video_gl_prepare_context_attributes(hw)) {
         free(ctx);
         return false;
-#else
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
-                            SDL_GL_CONTEXT_PROFILE_ES);
-#endif
-        break;
-
-    default:
-        LOG_ERROR("Unsupported HW context type: %d", hw->context_type);
-        free(ctx);
-        return false;
-    }
-
-    if (hw->debug_context)
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_DEBUG_FLAG);
-
-    /* Honor RETRO_ENVIRONMENT_SET_HW_SHARED_CONTEXT: cores using this hint
-     * expect to be able to share resources (e.g. video-decode textures)
-     * with the current GL context. SDL only consults this attribute at
-     * creation time; setting it is a no-op when no current context exists. */
-    if (g_frontend.video.hw_shared_context_requested) {
-        SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT, 1);
     }
 
     ctx->gl_context = SDL_GL_CreateContext(window);

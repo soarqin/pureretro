@@ -191,6 +191,12 @@ bool video_set_hw_render(struct retro_hw_render_callback *hw)
         SDL_WindowFlags flags = new_backend->window_flags();
         int win_w, win_h;
         compute_window_size(&win_w, &win_h);
+
+        if (new_backend->id == VIDEO_RENDERER_OPENGL &&
+            !video_gl_prepare_context_attributes(hw)) {
+            return false;
+        }
+
         v->window = SDL_CreateWindow("PureRetro", win_w, win_h, flags);
         if (!v->window) {
             LOG_ERROR("SDL_CreateWindow failed: %s", SDL_GetError());
