@@ -36,6 +36,8 @@ struct video_vk_context
     uint32_t queue_family_index;
     VkSurfaceKHR surface;
     VkCommandPool cmd_pool;
+    bool device_owned_by_core;
+    void (*core_destroy_device)(void);
     /* The window we created the surface and swapchain against. Kept so
      * video_vk_present() can recreate the swapchain in-place when the
      * driver reports VK_ERROR_OUT_OF_DATE_KHR / VK_SUBOPTIMAL_KHR. */

@@ -757,7 +757,12 @@ void video_vk_destroy(struct video_vk_context *ctx)
         if (ctx->swapchain != VK_NULL_HANDLE)
             vkDestroySwapchainKHR(ctx->device, ctx->swapchain, NULL);
 
-        vkDestroyDevice(ctx->device, NULL);
+        if (ctx->device_owned_by_core) {
+            if (ctx->core_destroy_device)
+                ctx->core_destroy_device();
+        } else {
+            vkDestroyDevice(ctx->device, NULL);
+        }
     }
 
     if (ctx->instance != VK_NULL_HANDLE) {
@@ -1319,22 +1324,91 @@ bool video_vk_negotiate_device(struct video_vk_context *ctx,
     struct retro_vulkan_context retro_ctx;
     memset(&retro_ctx, 0, sizeof(retro_ctx));
 
+    /* The core creates the logical device for negotiation-interface Vulkan
+     * cores. Tell it which extensions the frontend needs for presentation;
+     * otherwise it may return a device that can render core images but cannot
+     * legally own our swapchain. */
+    const char *required_device_extensions[] = {
+        VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+    };
+
     /* PPSSPP's vkCreateDevice_libretro dereferences required_features; never pass NULL. */
     VkPhysicalDeviceFeatures required_features = {0};
 
     bool ok = vk_iface->create_device(&retro_ctx,
-                                       ctx->instance,
-                                       ctx->physical_device,
-                                       ctx->surface,
-                                       ctx->get_instance_proc_addr,
-                                       NULL, 0, NULL, 0, &required_features);
+                                      ctx->instance,
+                                      ctx->physical_device,
+                                      ctx->surface,
+                                      ctx->get_instance_proc_addr,
+                                      required_device_extensions,
+                                      1,
+                                      NULL, 0,
+                                      &required_features);
     if (!ok) {
         LOG_ERROR("video_vk_negotiate_device: create_device failed");
         return false;
     }
+    if (retro_ctx.device == VK_NULL_HANDLE || retro_ctx.queue == VK_NULL_HANDLE) {
+        LOG_ERROR("video_vk_negotiate_device: core returned incomplete Vulkan context");
+        if (vk_iface->destroy_device)
+            vk_iface->destroy_device();
+        return false;
+    }
 
-    LOG_INFO("video_vk_negotiate_device: create_device succeeded, device=%p, queue=%p",
-             (void *)retro_ctx.device, (void *)retro_ctx.queue);
+    LOG_INFO("video_vk_negotiate_device: adopting core device=%p queue=%p qfam=%u present_queue=%p present_qfam=%u",
+             (void *)retro_ctx.device,
+             (void *)retro_ctx.queue,
+             retro_ctx.queue_family_index,
+             (void *)retro_ctx.presentation_queue,
+             retro_ctx.presentation_queue_family_index);
+
+    VkDevice old_device = ctx->device;
+    VkCommandPool old_cmd_pool = ctx->cmd_pool;
+    VkSwapchainKHR old_swapchain = ctx->swapchain;
+    bool old_owned_by_core = ctx->device_owned_by_core;
+    void (*old_core_destroy_device)(void) = ctx->core_destroy_device;
+
+    if (old_device != VK_NULL_HANDLE)
+        vkDeviceWaitIdle(old_device);
+
+    vk_swapchain_teardown(ctx);
+    if (old_swapchain != VK_NULL_HANDLE)
+        vkDestroySwapchainKHR(old_device, old_swapchain, NULL);
+    ctx->swapchain = VK_NULL_HANDLE;
+    if (old_cmd_pool != VK_NULL_HANDLE)
+        vkDestroyCommandPool(old_device, old_cmd_pool, NULL);
+    ctx->cmd_pool = VK_NULL_HANDLE;
+
+    if (old_device != VK_NULL_HANDLE && old_device != retro_ctx.device) {
+        if (old_owned_by_core) {
+            if (old_core_destroy_device)
+                old_core_destroy_device();
+        } else {
+            vkDestroyDevice(old_device, NULL);
+        }
+    }
+
+    ctx->physical_device = retro_ctx.gpu != VK_NULL_HANDLE
+                           ? retro_ctx.gpu : ctx->physical_device;
+    ctx->device = retro_ctx.device;
+    ctx->graphics_queue = retro_ctx.queue;
+    ctx->queue_family_index = retro_ctx.queue_family_index;
+    ctx->device_owned_by_core = true;
+    ctx->core_destroy_device = vk_iface->destroy_device;
+    ctx->get_device_proc_addr = (PFN_vkGetDeviceProcAddr)
+        vkGetDeviceProcAddr(ctx->device, "vkGetDeviceProcAddr");
+
+    if (!create_command_pool(ctx) || !vk_swapchain_create(ctx, ctx->window)) {
+        LOG_ERROR("video_vk_negotiate_device: failed to rebuild frontend objects on core device");
+        return false;
+    }
+
+    ctx->hw_if.gpu = ctx->physical_device;
+    ctx->hw_if.device = ctx->device;
+    ctx->hw_if.queue = ctx->graphics_queue;
+    ctx->hw_if.queue_index = ctx->queue_family_index;
+    ctx->hw_if.get_device_proc_addr = ctx->get_device_proc_addr;
+
     return true;
 }
 
