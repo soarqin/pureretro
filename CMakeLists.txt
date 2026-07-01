@@ -18,6 +18,9 @@ include(Dependencies)
 # Source files
 set(PURERETRO_SOURCES
     src/main.c
+    src/cli.c
+    src/frontend_lifecycle.c
+    src/run_loop.c
     src/core.c
     src/core_content.c
     src/core_variables.c
@@ -33,6 +36,9 @@ set(PURERETRO_SOURCES
 
 set(PURERETRO_HEADERS
     src/frontend.h
+    src/cli.h
+    src/frontend_lifecycle.h
+    src/run_loop.h
     src/core.h
     src/core_content.h
     src/core_variables.h

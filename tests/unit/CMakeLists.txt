@@ -9,3 +9,8 @@ add_pureretro_test(test_core_variables test_core_variables.c
     ${CMAKE_SOURCE_DIR}/src/core_variables.c
     ${CMAKE_SOURCE_DIR}/src/core_variables_parse.c
     ${CMAKE_SOURCE_DIR}/src/log.c)
+add_pureretro_test(test_cli test_cli.c
+    ${CMAKE_SOURCE_DIR}/src/cli.c
+    ${CMAKE_SOURCE_DIR}/src/core_variables.c
+    ${CMAKE_SOURCE_DIR}/src/core_variables_parse.c
+    ${CMAKE_SOURCE_DIR}/src/log.c)

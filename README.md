@@ -105,6 +105,7 @@ Current coverage:
 - `test_log` — log-level string parsing and `log_init` env-var behavior.
 - `test_core_variables_parse` — pure string helpers for the `retro_variable` v0 value format.
 - `test_core_variables` — core-option / variable-table CRUD, CLI → disk → default lookup order, and per-core `.opt` path derivation.
+- `test_cli` — `cli_parse` positional/flag handling across all 19 CLI options.
 
 Subsystems requiring a live SDL/GL/Vulkan context are intentionally not unit-tested.
 
@@ -112,7 +113,10 @@ Subsystems requiring a live SDL/GL/Vulkan context are intentionally not unit-tes
 
 ```
 src/
-  main.c                     # entry point, CLI parsing (table-driven)
+  main.c                     # entry point orchestrator (~170 lines)
+  cli.c / cli.h              # CLI parsing (table-driven dispatch)
+  frontend_lifecycle.c/.h    # SDL/log/video bring-up and shutdown
+  run_loop.c / run_loop.h    # event pump + frame timing
   core.c / core.h            # libretro core loader + environment dispatch table
   core_variables*.c/.h       # core option storage + definition parsing
   video.c / video.h          # renderer-agnostic windowing + dispatch

@@ -54,16 +54,20 @@ This separation keeps each renderer self-contained and easier to reason about in
 ### Module Map
 
 ```
-main            ->  core, video, audio, input, frontend, vfs, log
-video           ->  video_backend (vtable) -> video_sw, video_gl, video_vk
-core            ->  libretro.h, frontend, core_content, core_variables, log
-core_content    ->  frontend
-core_variables  ->  libretro.h, frontend, core_variables_parse
-audio           ->  SDL3, log
-input           ->  SDL3, log
-vfs             ->  libretro.h, log
-log             ->  SDL3
-frontend        ->  (shared typedefs and globals)
+main              ->  cli, frontend_lifecycle, run_loop, core, video, audio,
+                      input, vfs, log
+cli               ->  frontend, core_variables, log, video (renderer_name)
+frontend_lifecycle -> frontend, audio, video, log
+run_loop          ->  frontend, core, audio, input, video
+video             ->  video_backend (vtable) -> video_sw, video_gl, video_vk
+core              ->  libretro.h, frontend, core_content, core_variables, log
+core_content      ->  frontend
+core_variables    ->  libretro.h, frontend, core_variables_parse
+audio             ->  SDL3, log
+input             ->  SDL3, log
+vfs               ->  libretro.h, log
+log               ->  SDL3
+frontend          ->  (shared typedefs and globals)
 ```
 
 ### Dispatch Tables
@@ -79,10 +83,11 @@ preferred extension pattern for new additions:
   different handlers (e.g. `SET_HW_SHARED_CONTEXT` 44 vs. an EXP-44 sibling).
   `core_environment` itself is ~10 lines: table lookup + invoke + default
   `LOG_DEBUG("unhandled %u")` branch.
-- `main.c::g_cli_options[]` — 19 entries dispatching CLI flags to one
+- `cli.c::g_cli_options[]` — 19 entries dispatching CLI flags to one
   `static bool cli_*(const char *arg, struct frontend_state *cfg)` handler
-  each, plus a `wants_arg` flag and `help` text. `parse_args` is ~42 lines
-  and contains no per-flag logic.
+  each, plus a `wants_arg` flag and `help` text. `cli_parse` is ~42 lines
+  and contains no per-flag logic. `main.c` calls `cli_parse` and knows
+  nothing about individual flags.
 
 To add a new env callback or CLI flag: write one `static` handler + one row
 in the corresponding table. Do not reintroduce switch/if-else chains.
@@ -337,10 +342,13 @@ Current coverage:
   `cli_overrides -> disk_overrides -> current -> default` lookup order
   mirrored from `env_get_variable`, and `core_variables_path` name/ext
   stripping.
+- `tests/unit/test_cli.c` — `cli_parse` positional/flag handling:
+  argv[2] disambiguation, bounds checks on numeric flags, path-taking
+  flags (strdup vs. borrowed pointers), language codes, and refusal of
+  unknown / malformed inputs. Exercises all 19 rows of `g_cli_options`.
 
-Pure-function modules that remain on the queue: CLI `parse_cli` (needs
-extraction from `main.c` first). Subsystems requiring live SDL/GL/Vulkan
-context are intentionally not unit-tested.
+All pure-function modules are covered. Subsystems requiring live
+SDL/GL/Vulkan context are intentionally not unit-tested.
 
 When adding a new test:
 
