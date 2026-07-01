@@ -852,33 +852,54 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
     bool transfer_core_ownership =
         core_queue_family != VK_QUEUE_FAMILY_IGNORED &&
         core_queue_family != ctx->queue_family_index;
-    barrier.oldLayout = core_layout;
-    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    barrier.srcQueueFamilyIndex = transfer_core_ownership
-                                  ? core_queue_family
-                                  : VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = transfer_core_ownership
-                                  ? ctx->queue_family_index
-                                  : VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = core_image;
+    bool core_layout_general = (core_layout == VK_IMAGE_LAYOUT_GENERAL);
     /* Cores are free to produce the libretro image with graphics, compute,
      * transfer, or mixed pipelines. mednafen/beetle PSX HW in particular
      * creates compute pipelines during scene transitions, so a
      * COLOR_ATTACHMENT_OUTPUT-only dependency can miss shader writes and
      * present stale/black data. Use a conservative all-commands memory
-     * dependency before our presentation blit. */
-    barrier.srcAccessMask = transfer_core_ownership
-                            ? 0
-                            : VK_ACCESS_MEMORY_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+     * dependency before our presentation blit.
+     *
+     * libretro_vulkan.h also specifies that the frontend must not perform
+     * layout transitions when the core provides GENERAL; vkCmdBlitImage can
+     * read from GENERAL directly, so use memory barriers only in that case. */
+    if (core_layout_general && !transfer_core_ownership) {
+        VkMemoryBarrier memory_barrier = {0};
+        memory_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+        memory_barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
+        memory_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        vkCmdPipelineBarrier(cmd,
+                             VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             0,
+                             1, &memory_barrier,
+                             0, NULL,
+                             0, NULL);
+    } else {
+        barrier.oldLayout = core_layout;
+        barrier.newLayout = core_layout_general
+                             ? VK_IMAGE_LAYOUT_GENERAL
+                             : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        barrier.srcQueueFamilyIndex = transfer_core_ownership
+                                      ? core_queue_family
+                                      : VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = transfer_core_ownership
+                                      ? ctx->queue_family_index
+                                      : VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = core_image;
+        barrier.srcAccessMask = transfer_core_ownership
+                                ? 0
+                                : VK_ACCESS_MEMORY_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
 
-    vkCmdPipelineBarrier(cmd,
-                         VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         0,
-                         0, NULL,
-                         0, NULL,
-                         1, &barrier);
+        vkCmdPipelineBarrier(cmd,
+                             VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             0,
+                             0, NULL,
+                             0, NULL,
+                             1, &barrier);
+    }
 
     /* Compute blit region preserving aspect ratio */
     int32_t src_width = (int32_t)width;
@@ -952,7 +973,9 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
     }
 
     vkCmdBlitImage(cmd,
-                   core_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                   core_image,
+                   core_layout_general ? VK_IMAGE_LAYOUT_GENERAL
+                                       : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                    ctx->swapchain_images[image_index], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                    1, &blit, VK_FILTER_LINEAR);
 
@@ -975,27 +998,43 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
 
     /* Transition core image back to its original layout and release queue
      * family ownership when we acquired it above. */
-    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    barrier.newLayout = core_layout;
-    barrier.srcQueueFamilyIndex = transfer_core_ownership
-                                  ? ctx->queue_family_index
-                                  : VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = transfer_core_ownership
-                                  ? core_queue_family
-                                  : VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = core_image;
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-    barrier.dstAccessMask = transfer_core_ownership
-                            ? 0
-                            : (VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT);
+    if (core_layout_general && !transfer_core_ownership) {
+        VkMemoryBarrier memory_barrier = {0};
+        memory_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+        memory_barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        memory_barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+        vkCmdPipelineBarrier(cmd,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                             0,
+                             1, &memory_barrier,
+                             0, NULL,
+                             0, NULL);
+    } else {
+        barrier.oldLayout = core_layout_general
+                            ? VK_IMAGE_LAYOUT_GENERAL
+                            : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        barrier.newLayout = core_layout;
+        barrier.srcQueueFamilyIndex = transfer_core_ownership
+                                      ? ctx->queue_family_index
+                                      : VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = transfer_core_ownership
+                                      ? core_queue_family
+                                      : VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = core_image;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        barrier.dstAccessMask = transfer_core_ownership
+                                ? 0
+                                : (VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT);
 
-    vkCmdPipelineBarrier(cmd,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-                         0,
-                         0, NULL,
-                         0, NULL,
-                         1, &barrier);
+        vkCmdPipelineBarrier(cmd,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                             0,
+                             0, NULL,
+                             0, NULL,
+                             1, &barrier);
+    }
 
     if (!vk_check(vkEndCommandBuffer(cmd), "vkEndCommandBuffer")) {
         vk_clear_pending_frame(ctx);
