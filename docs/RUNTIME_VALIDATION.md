@@ -65,9 +65,15 @@ Legend for **Result**: `PASS` / `FAIL: <short note + issue link>` /
 
 Run every Vulkan row with `VK_LOADER_LAYERS_ENABLE=VK_LAYER_KHRONOS_validation`.
 
+`--render vk` is only the frontend's preferred hardware-render hint returned
+through `GET_PREFERRED_HW_RENDER`; some cores still need their own renderer
+core option to select a Vulkan-capable plugin. For `parallel_n64_libretro`,
+force ParaLLEl-RDP with `--variable parallel-n64-gfxplugin=parallel`; otherwise
+it may keep selecting a GL plugin even when the frontend prefers Vulkan.
+
 | # | Scenario | Core | Command | Verification points | Result |
 |---|----------|------|---------|---------------------|--------|
-| VK-1 | Basic Vulkan HW render | `parallel_n64_libretro` (with Vulkan renderer option) or `beetle_psx_hw_libretro` (Vulkan) | `pureretro <core> <content> --render vk` | Frame renders; zero validation errors during startup + 1 minute of gameplay | |
+| VK-1 | Basic Vulkan HW render | `parallel_n64_libretro` (ParaLLEl-RDP) or `beetle_psx_hw_libretro` (Vulkan) | `pureretro parallel_n64_libretro.so game.n64 --render vk --variable parallel-n64-gfxplugin=parallel` | Frame renders; log shows `Core requested HW context: type=6`; zero validation errors during startup + 1 minute of gameplay | |
 | VK-2 | Sync contract | Same VK-1 core | Play through several minutes of intense scenes | No `WRITE_AFTER_WRITE`, `SYNC_HAZARD_*`, or layout-transition errors from the validation layer | |
 | VK-3 | Window resize / swapchain recreate | Any VK core | Resize window multiple times, then minimize+restore | Swapchain recreated in `resize_output_surface`; core render target unchanged; no out-of-date / suboptimal errors persist | |
 | VK-4 | Cross-queue-family transfer | A VK core that uses a different queue family for graphics vs. present (rare; skip if unavailable) | `pureretro <core> <content> --render vk` | Queue-family ownership transfer executed once per frame (Phase 4 fix); no validation errors | |
