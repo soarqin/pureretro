@@ -229,15 +229,9 @@ static bool create_command_pool(struct video_vk_context *ctx)
 
 static void vk_swapchain_teardown(struct video_vk_context *ctx)
 {
-    /* Tear down every swapchain-derived GPU object owned by ctx, and
-     * reset all related pointers/handles to a clean zero state. Safe
-     * to call repeatedly and on a partially-constructed ctx (every
-     * call site checks for VK_NULL_HANDLE first). */
     if (ctx->swapchain_views) {
-        for (uint32_t i = 0; i < ctx->image_count; ++i) {
-            if (ctx->swapchain_views[i] != VK_NULL_HANDLE)
-                vkDestroyImageView(ctx->device, ctx->swapchain_views[i], NULL);
-        }
+        for (uint32_t i = 0; i < ctx->image_count; ++i)
+            vkDestroyImageView(ctx->device, ctx->swapchain_views[i], NULL);
     }
     if (ctx->cmd_pool != VK_NULL_HANDLE && ctx->cmd_buffers &&
         ctx->image_count > 0) {
@@ -245,18 +239,12 @@ static void vk_swapchain_teardown(struct video_vk_context *ctx)
                              ctx->image_count, ctx->cmd_buffers);
     }
     for (int i = 0; i < VK_MAX_FRAMES_IN_FLIGHT; ++i) {
-        if (ctx->image_available[i] != VK_NULL_HANDLE) {
-            vkDestroySemaphore(ctx->device, ctx->image_available[i], NULL);
-            ctx->image_available[i] = VK_NULL_HANDLE;
-        }
-        if (ctx->render_finished[i] != VK_NULL_HANDLE) {
-            vkDestroySemaphore(ctx->device, ctx->render_finished[i], NULL);
-            ctx->render_finished[i] = VK_NULL_HANDLE;
-        }
-        if (ctx->frame_fence[i] != VK_NULL_HANDLE) {
-            vkDestroyFence(ctx->device, ctx->frame_fence[i], NULL);
-            ctx->frame_fence[i] = VK_NULL_HANDLE;
-        }
+        vkDestroySemaphore(ctx->device, ctx->image_available[i], NULL);
+        vkDestroySemaphore(ctx->device, ctx->render_finished[i], NULL);
+        vkDestroyFence(ctx->device, ctx->frame_fence[i], NULL);
+        ctx->image_available[i] = VK_NULL_HANDLE;
+        ctx->render_finished[i] = VK_NULL_HANDLE;
+        ctx->frame_fence[i] = VK_NULL_HANDLE;
     }
     free(ctx->swapchain_images);
     free(ctx->swapchain_views);
@@ -271,17 +259,10 @@ static void vk_swapchain_teardown(struct video_vk_context *ctx)
 
 static bool vk_swapchain_create(struct video_vk_context *ctx, SDL_Window *window)
 {
-    /* I-3 contract: on early-return false, ctx is left in a clean zero
-     * state — all swapchain-derived GPU objects destroyed, all slot
-     * pointers/handles NULL/VK_NULL_HANDLE. Callers may safely retry
-     * (the next call starts from a clean slate) or invoke
-     * video_vk_destroy(). On success, ctx is fully populated. */
-
     VkSurfaceFormatKHR *formats = NULL;
     VkPresentModeKHR *modes = NULL;
     VkResult r;
 
-    /* Tear down any previous swapchain state first. */
     vk_swapchain_teardown(ctx);
 
     VkSurfaceCapabilitiesKHR caps;
@@ -384,8 +365,7 @@ static bool vk_swapchain_create(struct video_vk_context *ctx, SDL_Window *window
     if (!vk_check(r, "vkCreateSwapchainKHR"))
         goto fail;
 
-    if (ctx->swapchain != VK_NULL_HANDLE)
-        vkDestroySwapchainKHR(ctx->device, ctx->swapchain, NULL);
+    vkDestroySwapchainKHR(ctx->device, ctx->swapchain, NULL);
     ctx->swapchain = new_swapchain;
 
     /* Retrieve swapchain images */
@@ -463,15 +443,11 @@ static bool vk_swapchain_create(struct video_vk_context *ctx, SDL_Window *window
     return true;
 
 fail:
-    /* I-3 cleanup: ensure ctx is in a clean zero state after partial
-     * construction failures, so a retry or video_vk_destroy() works. */
     free(formats);
     free(modes);
     vk_swapchain_teardown(ctx);
-    if (ctx->swapchain != VK_NULL_HANDLE) {
-        vkDestroySwapchainKHR(ctx->device, ctx->swapchain, NULL);
-        ctx->swapchain = VK_NULL_HANDLE;
-    }
+    vkDestroySwapchainKHR(ctx->device, ctx->swapchain, NULL);
+    ctx->swapchain = VK_NULL_HANDLE;
     return false;
 }
 
@@ -534,24 +510,34 @@ static void vk_set_image(void *handle, const struct retro_vulkan_image *image,
             }
         }
     }
-
-    ctx->has_pending_image = true;
 }
 
 static void vk_clear_pending_frame(struct video_vk_context *ctx)
 {
-    if (!ctx)
-        return;
-
     /* Keep pending_image cached. Several hardware cores use libretro's
      * duplicate-frame convention and call video_refresh(NULL, 0, 0, 0)
      * without a fresh set_image(); the frontend must re-present the last
      * image in that case. Only per-frame sync/cmd state is consumed here. */
-    ctx->has_pending_image = false;
     ctx->pending_wait_semaphore_count = 0;
     ctx->pending_command_buffer_count = 0;
     ctx->pending_src_queue_family = VK_QUEUE_FAMILY_IGNORED;
     ctx->pending_signal_semaphore = VK_NULL_HANDLE;
+}
+
+static void vk_restore_frame_fence(struct video_vk_context *ctx, uint32_t frame_idx)
+{
+    VkFence old_fence = ctx->frame_fence[frame_idx];
+    for (uint32_t i = 0; i < ctx->image_count; ++i) {
+        if (ctx->images_in_flight[i] == old_fence)
+            ctx->images_in_flight[i] = VK_NULL_HANDLE;
+    }
+
+    VkFenceCreateInfo fci = {0};
+    fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+    vkDestroyFence(ctx->device, old_fence, NULL);
+    ctx->frame_fence[frame_idx] = VK_NULL_HANDLE;
+    vkCreateFence(ctx->device, &fci, NULL, &ctx->frame_fence[frame_idx]);
 }
 
 static uint32_t vk_get_sync_index(void *handle)
@@ -711,33 +697,11 @@ void video_vk_destroy(struct video_vk_context *ctx)
 
     video_vk_context_destroy(ctx);
 
-    /* Tear down everything that needs the device first, all inside one
-     * guarded block. Anything destroyed outside this block must not touch
-     * ctx->device. */
     if (ctx->device != VK_NULL_HANDLE) {
         vkDeviceWaitIdle(ctx->device);
-
-        for (int i = 0; i < VK_MAX_FRAMES_IN_FLIGHT; ++i) {
-            if (ctx->image_available[i] != VK_NULL_HANDLE)
-                vkDestroySemaphore(ctx->device, ctx->image_available[i], NULL);
-            if (ctx->render_finished[i] != VK_NULL_HANDLE)
-                vkDestroySemaphore(ctx->device, ctx->render_finished[i], NULL);
-            if (ctx->frame_fence[i] != VK_NULL_HANDLE)
-                vkDestroyFence(ctx->device, ctx->frame_fence[i], NULL);
-        }
-
-        if (ctx->cmd_pool != VK_NULL_HANDLE)
-            vkDestroyCommandPool(ctx->device, ctx->cmd_pool, NULL);
-
-        if (ctx->swapchain_views) {
-            for (uint32_t i = 0; i < ctx->image_count; ++i) {
-                if (ctx->swapchain_views[i] != VK_NULL_HANDLE)
-                    vkDestroyImageView(ctx->device, ctx->swapchain_views[i], NULL);
-            }
-        }
-
-        if (ctx->swapchain != VK_NULL_HANDLE)
-            vkDestroySwapchainKHR(ctx->device, ctx->swapchain, NULL);
+        vk_swapchain_teardown(ctx);
+        vkDestroyCommandPool(ctx->device, ctx->cmd_pool, NULL);
+        vkDestroySwapchainKHR(ctx->device, ctx->swapchain, NULL);
 
         if (ctx->device_owned_by_core) {
             if (ctx->core_destroy_device)
@@ -748,8 +712,7 @@ void video_vk_destroy(struct video_vk_context *ctx)
     }
 
     if (ctx->instance != VK_NULL_HANDLE) {
-        if (ctx->surface != VK_NULL_HANDLE)
-            vkDestroySurfaceKHR(ctx->instance, ctx->surface, NULL);
+        vkDestroySurfaceKHR(ctx->instance, ctx->surface, NULL);
         vkDestroyInstance(ctx->instance, NULL);
     }
 
@@ -779,13 +742,11 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
         height = ctx->last_frame_height;
     }
 
-    /* I-2: if a previous present/acquire reported the swapchain
-     * out-of-date or suboptimal, rebuild it before doing anything
-     * else this frame. */
+    /* Rebuild after OUT_OF_DATE/SUBOPTIMAL from a previous acquire/present. */
     if (ctx->swapchain_dirty) {
         if (!video_vk_resize(ctx, ctx->window)) {
             /* Recreation failed (e.g. minimised window with zero extent).
-             * Drop the pending image; we'll try again next frame. */
+             * Drop per-frame sync; we'll try again next frame. */
             vk_clear_pending_frame(ctx);
             return;
         }
@@ -1009,10 +970,7 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
         blit.dstOffsets[1] = tmp;
     }
 
-    /* I-5: clear the swapchain image to black before blitting so the
-     * letterbox/pillarbox regions don't retain previous-frame garbage.
-     * Only needed when the blit destination doesn't cover the full
-     * swapchain extent. */
+    /* Clear letterbox/pillarbox regions before blitting. */
     if ((uint32_t)dst_w_i < ctx->swapchain_extent.width ||
         (uint32_t)dst_h_i < ctx->swapchain_extent.height) {
         VkClearColorValue clear_color = {{0.0f, 0.0f, 0.0f, 1.0f}};
@@ -1168,17 +1126,7 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
                   frame_valid ? 1 : 0,
                   ctx->pending_command_buffer_count,
                   wait_count);
-        VkFence old_fence = ctx->frame_fence[frame_idx];
-        for (uint32_t i = 0; i < ctx->image_count; ++i) {
-            if (ctx->images_in_flight[i] == old_fence)
-                ctx->images_in_flight[i] = VK_NULL_HANDLE;
-        }
-        VkFenceCreateInfo fci = {0};
-        fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-        vkDestroyFence(ctx->device, old_fence, NULL);
-        ctx->frame_fence[frame_idx] = VK_NULL_HANDLE;
-        vkCreateFence(ctx->device, &fci, NULL, &ctx->frame_fence[frame_idx]);
+        vk_restore_frame_fence(ctx, frame_idx);
         free(wait_semaphores);
         free(wait_stages);
         free(submit_cmds);
@@ -1327,11 +1275,9 @@ bool video_vk_negotiate_device(struct video_vk_context *ctx,
         vkDeviceWaitIdle(old_device);
 
     vk_swapchain_teardown(ctx);
-    if (old_swapchain != VK_NULL_HANDLE)
-        vkDestroySwapchainKHR(old_device, old_swapchain, NULL);
+    vkDestroySwapchainKHR(old_device, old_swapchain, NULL);
     ctx->swapchain = VK_NULL_HANDLE;
-    if (old_cmd_pool != VK_NULL_HANDLE)
-        vkDestroyCommandPool(old_device, old_cmd_pool, NULL);
+    vkDestroyCommandPool(old_device, old_cmd_pool, NULL);
     ctx->cmd_pool = VK_NULL_HANDLE;
 
     if (old_device != VK_NULL_HANDLE && old_device != retro_ctx.device) {

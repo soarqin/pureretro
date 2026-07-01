@@ -79,7 +79,6 @@ struct video_vk_context
     uint32_t pending_command_buffer_capacity;
     uint32_t pending_src_queue_family;
     VkSemaphore pending_signal_semaphore;
-    bool has_pending_image;
 
     /* Last non-zero libretro frame dimensions. Hardware cores may submit
      * duplicate frames as video_refresh(NULL, 0, 0, 0) without a fresh
