@@ -54,8 +54,28 @@ bool audio_init(double sample_rate)
     spec.format = SDL_AUDIO_S16;
     spec.channels = FRONTEND_AUDIO_CHANNELS;
 
-    g_frontend.audio_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
-                                                         &spec, NULL, NULL);
+    g_frontend.audio_stream =
+        SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
+                                  &spec, NULL, NULL);
+
+    /* Some audio backends (notably WASAPI on Windows) refuse unusual
+     * sample rates that libretro cores report (e.g. 32768 Hz for GBA,
+     * 262144 Hz for the SNES SPC-700). SDL3 resamples transparently
+     * once the stream is open, so falling back to a mainstream rate
+     * still lets the core push its native-rate audio via SDL's
+     * resampler; we just hand the device a rate the driver accepts.
+     * Retry once at 48000 Hz before giving up. */
+    if (!g_frontend.audio_stream && (int)sample_rate != 48000) {
+        LOG_WARN("SDL_OpenAudioDeviceStream failed at %d Hz: %s; retrying at 48000 Hz",
+                 (int)sample_rate, SDL_GetError());
+        spec.freq = 48000;
+        g_frontend.audio_stream =
+            SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
+                                      &spec, NULL, NULL);
+        if (g_frontend.audio_stream)
+            sample_rate = 48000.0;
+    }
+
     if (!g_frontend.audio_stream) {
         LOG_ERROR("SDL_OpenAudioDeviceStream failed: %s", SDL_GetError());
         return false;
@@ -70,6 +90,7 @@ bool audio_init(double sample_rate)
 
     g_sample_rate = (int)sample_rate;
     g_max_queued_bytes = compute_max_queued_bytes(g_sample_rate, g_min_latency_ms);
+    LOG_INFO("Audio initialized at %d Hz", g_sample_rate);
     return true;
 }
 

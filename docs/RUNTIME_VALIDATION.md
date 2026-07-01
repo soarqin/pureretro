@@ -46,9 +46,15 @@ Legend for **Result**: `PASS` / `FAIL: <short note + issue link>` /
 
 ### OpenGL renderer (`--render gl`)
 
+> **Choosing a GL core:** Not every core has a GL renderer. `mgba` is
+> software-only on desktop builds — running it with `--render gl` correctly
+> falls back to the SW backend and logs
+> `"user requested 'gl' but renderer is 'sw'"`. Pick a core that is known
+> to call `SET_HW_RENDER(OPENGL_CORE)` (see below).
+
 | # | Scenario | Core | Command | Verification points | Result |
 |---|----------|------|---------|---------------------|--------|
-| GL-1 | Basic HW render | `mgba_libretro` | `pureretro mgba_libretro.so game.gba --render gl` | Frame renders through FBO; presentation blit correct; `LOG_INFO("Final active renderer: gl")` | |
+| GL-1 | Basic HW render | `mupen64plus_next_libretro` (GL) or `dolphin_libretro` | `pureretro <core> <content> --render gl` | Frame renders through FBO; presentation blit correct; `LOG_INFO("Final active renderer: gl")`; no HW→SW fallback warning | |
 | GL-2 | `need_fullpath` core | `mupen64plus_next_libretro` | `pureretro mupen64plus_next_libretro.so game.n64 --render gl` | Core receives real path, not memory buffer; `game.data == NULL, game.size == 0` visible under debug logging | |
 | GL-3 | Window resize stability | Any GL core | Start GL core, resize window repeatedly for ~30 s | FBO not recreated; NO `context_destroy`/`context_reset` calls per resize (Phase 3 fix); presentation scales correctly | |
 | GL-4 | Geometry change mid-run | Core that changes AV info (some N64 cores on video plugin switch) | Trigger a resolution change in-game | `resize_render_target` fires, `resize_output_surface` does not; window stays same size | |
