@@ -136,13 +136,19 @@ void video_process_event(const SDL_Event *event)
 
     if (event->type != SDL_EVENT_WINDOW_RESIZED &&
         event->type != SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED &&
-        event->type != SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED) {
+        event->type != SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED &&
+        event->type != SDL_EVENT_WINDOW_ENTER_FULLSCREEN &&
+        event->type != SDL_EVENT_WINDOW_LEAVE_FULLSCREEN &&
+        event->type != SDL_EVENT_WINDOW_RESTORED &&
+        event->type != SDL_EVENT_WINDOW_SHOWN) {
         return;
     }
 
     if (!v->hw_render_enabled || !v->backend || !v->backend_ctx)
         return;
 
+    LOG_INFO("Window output surface changed (event=%u); resizing %s backend",
+             (unsigned)event->type, v->backend->name);
     if (!v->backend->resize_output_surface(v->backend_ctx, v->window)) {
         LOG_ERROR("Backend %s failed to resize after window resize",
                   v->backend->name);

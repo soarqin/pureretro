@@ -1104,6 +1104,20 @@ bool video_vk_resize(struct video_vk_context *ctx, SDL_Window *window)
         return false;
 
     ctx->window = window;
+
+    int pixel_w = 0;
+    int pixel_h = 0;
+    SDL_GetWindowSizeInPixels(window, &pixel_w, &pixel_h);
+    if (pixel_w <= 0 || pixel_h <= 0 ||
+        (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED)) {
+        LOG_DEBUG("Vulkan swapchain resize deferred for hidden/minimized window (%dx%d)",
+                  pixel_w, pixel_h);
+        ctx->swapchain_dirty = true;
+        return true;
+    }
+
+    LOG_INFO("Recreating Vulkan swapchain for window size %dx%d",
+             pixel_w, pixel_h);
     vkDeviceWaitIdle(ctx->device);
 
     /* vk_swapchain_create() begins with vk_swapchain_teardown(), so

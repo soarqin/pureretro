@@ -61,6 +61,9 @@ void run_loop(void)
             case SDL_EVENT_WINDOW_RESIZED:
             case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
             case SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED:
+            case SDL_EVENT_WINDOW_ENTER_FULLSCREEN:
+            case SDL_EVENT_WINDOW_LEAVE_FULLSCREEN:
+                g_frontend.window_minimized = false;
                 video_process_event(&event);
                 break;
             case SDL_EVENT_WINDOW_MINIMIZED:
@@ -69,6 +72,7 @@ void run_loop(void)
             case SDL_EVENT_WINDOW_RESTORED:
             case SDL_EVENT_WINDOW_SHOWN:
                 g_frontend.window_minimized = false;
+                video_process_event(&event);
                 break;
             default:
                 break;
