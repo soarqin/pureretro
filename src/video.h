@@ -50,9 +50,9 @@ retro_proc_address_t video_get_proc_address(const char *sym);
  * Called when the core sets RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE. */
 bool video_negotiate_hw_context(const struct retro_hw_render_context_negotiation_interface *iface);
 
-/* Resize the active backend's render target (FBO for GL, swapchain
- * for VK, no-op for SW). Called from SET_SYSTEM_AV_INFO and from
- * window-resize events. Returns false only on real failure. */
+/* Resize the active backend's core render target (FBO for GL,
+ * no-op for VK/SW). Called from libretro geometry/AV-info updates.
+ * Window events use a separate output-surface path. */
 bool video_resize(unsigned width, unsigned height);
 
 /* Update geometry dimensions and aspect ratio. Called when the core

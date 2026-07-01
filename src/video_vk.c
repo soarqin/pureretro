@@ -1015,11 +1015,16 @@ static void vb_vk_present(void *ctx, const void *data, unsigned width,
     video_vk_present((struct video_vk_context *)ctx, width, height);
 }
 
-static bool vb_vk_resize(void *ctx, SDL_Window *window,
-                         unsigned width, unsigned height)
+static bool vb_vk_resize_render_target(void *ctx, unsigned width, unsigned height)
 {
+    (void)ctx;
     (void)width;
     (void)height;
+    return true;
+}
+
+static bool vb_vk_resize_output_surface(void *ctx, SDL_Window *window)
+{
     return video_vk_resize((struct video_vk_context *)ctx, window);
 }
 
@@ -1063,7 +1068,8 @@ const struct video_backend vk_backend = {
     .init                    = vb_vk_init,
     .destroy                 = vb_vk_destroy,
     .present                 = vb_vk_present,
-    .resize                  = vb_vk_resize,
+    .resize_render_target    = vb_vk_resize_render_target,
+    .resize_output_surface   = vb_vk_resize_output_surface,
     .get_current_framebuffer = vb_vk_get_current_framebuffer,
     .get_proc_address        = vb_vk_get_proc_address,
     .negotiate_device        = vb_vk_negotiate_device,

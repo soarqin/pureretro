@@ -19,6 +19,7 @@ include(Dependencies)
 set(PURERETRO_SOURCES
     src/main.c
     src/core.c
+    src/core_content.c
     src/core_variables.c
     src/core_variables_parse.c
     src/video.c
@@ -33,6 +34,7 @@ set(PURERETRO_SOURCES
 set(PURERETRO_HEADERS
     src/frontend.h
     src/core.h
+    src/core_content.h
     src/core_variables.h
     src/core_variables_parse.h
     src/video.h

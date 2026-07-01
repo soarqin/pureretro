@@ -16,7 +16,8 @@
  *   3. video.c calls init() to create the backend context; the
  *      backend stores its own context behind an opaque void*.
  *   4. Per-frame and per-event calls go through the dispatch
- *      methods (present, resize, get_current_framebuffer, ...).
+ *      methods (present, resize_render_target, resize_output_surface,
+ *      get_current_framebuffer, ...).
  *   5. context_destroy() runs before SDL_DestroyWindow (used by
  *      GL to release the GL context); destroy() frees the rest.
  */
@@ -79,13 +80,19 @@ struct video_backend {
                     unsigned height, size_t pitch,
                     enum retro_pixel_format fmt);
 
-    /* Resize the backend's render target.
+    /* Resize the backend's core render target.
      *  - software: no-op, returns true.
-     *  - GL: resizes the FBO (ignores `window`).
-     *  - VK: recreates the swapchain (ignores `width`/`height`).
-     * Returns false only on real failure. */
-    bool (*resize)(void *ctx, SDL_Window *window,
-                   unsigned width, unsigned height);
+     *  - GL: resizes the libretro FBO.
+     *  - VK: no-op; cores render to their own images.
+     * Called from libretro geometry/AV-info updates, not window events. */
+    bool (*resize_render_target)(void *ctx, unsigned width, unsigned height);
+
+    /* Resize the backend's output surface.
+     *  - software: no-op, returns true.
+     *  - GL: no-op; the default framebuffer follows the SDL window.
+     *  - VK: recreates the swapchain.
+     * Called from SDL window resize/scale events, not libretro geometry. */
+    bool (*resize_output_surface)(void *ctx, SDL_Window *window);
 
     /* Return the currently-bound framebuffer object (GL) or 0
      * for backends that don't expose one. */

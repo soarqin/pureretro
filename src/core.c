@@ -6,6 +6,7 @@
  */
 
 #include "core.h"
+#include "core_content.h"
 #include "core_variables_parse.h"
 #include "frontend.h"
 #include "video.h"
@@ -104,14 +105,18 @@ static void game_info_ext_clear(void)
     memset(&g_frontend.game_info_ext, 0, sizeof(g_frontend.game_info_ext));
 }
 
-static bool game_info_ext_populate(const char *content_path)
+static bool game_info_ext_populate(const char *content_path,
+                                   bool provide_data,
+                                   bool persistent_data)
 {
     memset(&g_frontend.game_info_ext, 0, sizeof(g_frontend.game_info_ext));
 
     g_frontend.game_info_ext.full_path = content_path;
-    g_frontend.game_info_ext.data = g_frontend.rom_data;
-    g_frontend.game_info_ext.size = g_frontend.rom_size;
-    g_frontend.game_info_ext.persistent_data = true;
+    if (provide_data) {
+        g_frontend.game_info_ext.data = g_frontend.rom_data;
+        g_frontend.game_info_ext.size = g_frontend.rom_size;
+        g_frontend.game_info_ext.persistent_data = persistent_data;
+    }
 
     if (!content_path)
     {
@@ -407,6 +412,29 @@ void core_unload(void)
     memset(&g_core, 0, sizeof(g_core));
 }
 
+static void core_release_rom_data(void)
+{
+    free(g_frontend.rom_data);
+    g_frontend.rom_data = NULL;
+    g_frontend.rom_size = 0;
+}
+
+static const struct subsystem_storage *core_find_requested_subsystem(void)
+{
+    if (!g_frontend.subsystem_ident)
+        return NULL;
+
+    for (unsigned i = 0; i < g_frontend.subsystem_info_count; ++i) {
+        if (g_frontend.subsystem_info[i].ident &&
+            strcmp(g_frontend.subsystem_info[i].ident,
+                   g_frontend.subsystem_ident) == 0) {
+            return &g_frontend.subsystem_info[i];
+        }
+    }
+
+    return NULL;
+}
+
 static bool core_load_game(const char *content_path)
 {
     if (content_path) {
@@ -414,54 +442,59 @@ static bool core_load_game(const char *content_path)
         memset(&game, 0, sizeof(game));
         game.path = content_path;
 
-        if (!load_file(content_path, &g_frontend.rom_data, &g_frontend.rom_size)) {
-            LOG_ERROR("Failed to load content file: %s", content_path);
+        const struct subsystem_storage *subsystem =
+            core_find_requested_subsystem();
+        if (g_frontend.subsystem_ident && !subsystem) {
+            LOG_ERROR("--subsystem '%s' is not declared by the core",
+                      g_frontend.subsystem_ident);
             return false;
         }
 
-        game.data = g_frontend.rom_data;
-        game.size = g_frontend.rom_size;
+        struct core_content_load_policy policy;
+        policy.need_fullpath = g_frontend.core_need_fullpath;
+        policy.persistent_data = true;
+
+        if (subsystem && subsystem->num_roms > 0)
+            policy.need_fullpath = subsystem->roms[0].need_fullpath;
+        core_content_apply_overrides(content_path,
+                                     g_frontend.content_overrides,
+                                     g_frontend.content_override_count,
+                                     &policy);
+
+        if (!policy.need_fullpath) {
+            if (!load_file(content_path, &g_frontend.rom_data,
+                           &g_frontend.rom_size)) {
+                LOG_ERROR("Failed to load content file: %s", content_path);
+                return false;
+            }
+            game.data = g_frontend.rom_data;
+            game.size = g_frontend.rom_size;
+            /* PureRetro keeps memory-backed content alive until shutdown,
+             * so the persistent-data promise is always true in practice. */
+            policy.persistent_data = true;
+        }
 
         /* Populate extended game info for any GET_GAME_INFO_EXT calls
          * the core may make during retro_load_game. */
-        game_info_ext_populate(content_path);
+        game_info_ext_populate(content_path, !policy.need_fullpath,
+                               policy.persistent_data);
 
         bool loaded;
         if (g_frontend.subsystem_ident) {
-            /* Look up the requested subsystem in the deep-copied registry. */
-            const struct subsystem_storage *match = NULL;
-            for (unsigned i = 0; i < g_frontend.subsystem_info_count; ++i) {
-                if (g_frontend.subsystem_info[i].ident &&
-                    strcmp(g_frontend.subsystem_info[i].ident,
-                           g_frontend.subsystem_ident) == 0) {
-                    match = &g_frontend.subsystem_info[i];
-                    break;
-                }
-            }
-            if (!match) {
-                LOG_ERROR("--subsystem '%s' is not declared by the core",
-                          g_frontend.subsystem_ident);
-                free(g_frontend.rom_data);
-                g_frontend.rom_data = NULL;
-                g_frontend.rom_size = 0;
-                return false;
-            }
             if (!g_core.retro_load_game_special) {
                 LOG_ERROR("Core does not export retro_load_game_special; "
                           "cannot use --subsystem");
-                free(g_frontend.rom_data);
-                g_frontend.rom_data = NULL;
-                g_frontend.rom_size = 0;
+                core_release_rom_data();
                 return false;
             }
-            if (match->num_roms != 1) {
+            if (subsystem->num_roms != 1) {
                 LOG_WARN("--subsystem '%s' expects %u ROMs but only 1 content "
                          "path was provided; behaviour may be undefined",
-                         g_frontend.subsystem_ident, match->num_roms);
+                         g_frontend.subsystem_ident, subsystem->num_roms);
             }
             LOG_INFO("Calling retro_load_game_special(id=%u, '%s')...",
-                     match->id, g_frontend.subsystem_ident);
-            loaded = g_core.retro_load_game_special(match->id, &game, 1);
+                     subsystem->id, g_frontend.subsystem_ident);
+            loaded = g_core.retro_load_game_special(subsystem->id, &game, 1);
         } else {
             LOG_INFO("Calling retro_load_game...");
             loaded = g_core.retro_load_game(&game);
@@ -473,9 +506,7 @@ static bool core_load_game(const char *content_path)
              * without invoking core_unload does not leak it. core_unload()
              * also handles this case, so a double-free is avoided by
              * nulling the pointers below. */
-            free(g_frontend.rom_data);
-            g_frontend.rom_data = NULL;
-            g_frontend.rom_size = 0;
+            core_release_rom_data();
             return false;
         }
         g_game_loaded = true;
@@ -497,6 +528,13 @@ static bool core_init_hw_render(void)
 {
     /* For HW cores the window was created during SET_HW_RENDER before
      * AV info was available. Resize it now that we know the real resolution. */
+    if (g_frontend.video.hw_render_enabled &&
+        g_av_info.geometry.max_width > 0 &&
+        g_av_info.geometry.max_height > 0) {
+        video_resize(g_av_info.geometry.max_width,
+                     g_av_info.geometry.max_height);
+    }
+
     if (g_frontend.video.hw_render_enabled && g_frontend.video.window) {
         video_resize_window_to_geometry();
     }
@@ -533,6 +571,8 @@ bool core_init(const char *content_path)
     g_core_initialized = true;
 
     g_core.retro_get_system_info(&info);
+    g_frontend.core_need_fullpath = info.need_fullpath;
+    g_frontend.core_block_extract = info.block_extract;
     LOG_INFO("Core: %s (v%s)", info.library_name, info.library_version);
 
     if (!core_load_game(content_path))
@@ -1154,7 +1194,8 @@ static bool env_set_system_av_info(struct frontend_state *fe, void *data)
         (const struct retro_system_av_info *)data;
     g_av_info = *av;
 
-    if (fe->video.hw_render_enabled) {
+    if (fe->video.hw_render_enabled &&
+        av->geometry.max_width > 0 && av->geometry.max_height > 0) {
         video_resize(av->geometry.max_width, av->geometry.max_height);
     }
     return true;

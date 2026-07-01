@@ -143,20 +143,7 @@ void video_process_event(const SDL_Event *event)
     if (!v->hw_render_enabled || !v->backend || !v->backend_ctx)
         return;
 
-    unsigned new_w, new_h;
-    if (event->type == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED) {
-        /* DISPLAY_SCALE_CHANGED carries no size; re-query the window so
-         * the backend can rebuild its surface at the new HiDPI factor. */
-        int w = 0, h = 0;
-        SDL_GetWindowSizeInPixels(v->window, &w, &h);
-        new_w = (unsigned)(w > 0 ? w : 0);
-        new_h = (unsigned)(h > 0 ? h : 0);
-    } else {
-        new_w = (unsigned)event->window.data1;
-        new_h = (unsigned)event->window.data2;
-    }
-
-    if (!v->backend->resize(v->backend_ctx, v->window, new_w, new_h)) {
+    if (!v->backend->resize_output_surface(v->backend_ctx, v->window)) {
         LOG_ERROR("Backend %s failed to resize after window resize",
                   v->backend->name);
         if (v->backend->id == VIDEO_RENDERER_VULKAN)
@@ -217,13 +204,10 @@ bool video_set_hw_render(struct retro_hw_render_callback *hw)
     struct retro_hw_render_callback *hw_arg =
         (new_backend->id == VIDEO_RENDERER_SW) ? NULL : hw;
     if (!new_backend->init(v->window, hw_arg, &ctx)) {
-        LOG_ERROR("Backend %s init failed; falling back to software",
-                  new_backend->name);
-        if (sw_backend.init(v->window, NULL, &ctx)) {
-            v->backend = &sw_backend;
-            v->backend_ctx = ctx;
-            v->renderer = VIDEO_RENDERER_SW;
-            v->hw_render_enabled = false;
+        LOG_ERROR("Backend %s init failed", new_backend->name);
+        if (new_backend->id != VIDEO_RENDERER_SW && v->window) {
+            SDL_DestroyWindow(v->window);
+            v->window = NULL;
         }
         return false;
     }
@@ -279,7 +263,7 @@ bool video_resize(unsigned width, unsigned height)
     struct video_state *v = &g_frontend.video;
     if (!v->backend || !v->backend_ctx)
         return false;
-    return v->backend->resize(v->backend_ctx, v->window, width, height);
+    return v->backend->resize_render_target(v->backend_ctx, width, height);
 }
 
 void video_update_geometry(unsigned base_width, unsigned base_height,
@@ -292,7 +276,7 @@ void video_update_geometry(unsigned base_width, unsigned base_height,
     g_av_info.geometry.max_height   = max_height;
     g_av_info.geometry.aspect_ratio = aspect_ratio;
 
-    if (g_frontend.video.hw_render_enabled) {
+    if (g_frontend.video.hw_render_enabled && max_width > 0 && max_height > 0) {
         video_resize(max_width, max_height);
     }
 

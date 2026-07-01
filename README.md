@@ -176,7 +176,7 @@ cmake/
 | Right Shift   | Select          |
 | Q / W         | L / R           |
 
-Override the default mapping with `--config <path>` pointing to a file with `<scancode> <button>` lines (one per line; e.g. `SPACE A`).
+Override the default mapping with `--config <path>` pointing to a file with `<scancode> <button>` or `<scancode>=<button>` lines (one per line; e.g. `SPACE A` or `SPACE=A`).
 
 ### Window Controls
 

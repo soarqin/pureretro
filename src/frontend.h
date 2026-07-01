@@ -169,6 +169,11 @@ struct frontend_state
     void *rom_data;
     size_t rom_size;
 
+    /* Load-relevant fields from retro_system_info. Content overrides and
+     * subsystem ROM descriptors can override these for individual files. */
+    bool core_need_fullpath;
+    bool core_block_extract;
+
     /* Core options (SET_VARIABLES / GET_VARIABLE).
      * Structured storage for options declared by the core. User overrides
      * are stored separately so they survive SET_VARIABLES resets.

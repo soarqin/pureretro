@@ -28,6 +28,12 @@ struct video_sw_context
     int          texture_height;
     SDL_PixelFormat texture_format;
 
+    /* Last valid frame dimensions. Libretro duplicate frames may call
+     * video_refresh(NULL, 0, 0, 0); these dimensions let us present the
+     * existing texture without attempting to create a zero-sized one. */
+    unsigned     last_frame_width;
+    unsigned     last_frame_height;
+
     /* Zero-copy framebuffer state for GET_CURRENT_SOFTWARE_FRAMEBUFFER.
      * When the core requests a frontend-owned framebuffer, we lock the
      * streaming texture and hand the raw pixel pointer back. The core

@@ -277,10 +277,18 @@ bool video_gl_init(SDL_Window *window, struct retro_hw_render_callback *hw,
     ctx->fn_clear            = (retro_proc_address_t)GLPROC(Clear);
     ctx->fn_viewport         = (retro_proc_address_t)GLPROC(Viewport);
 
-    /* Create an FBO for the core to render into. */
+    /* Create an FBO for the core to render into. Prefer libretro max
+     * geometry when it is already known; otherwise use the current window
+     * size and let core_init_hw_render()/SET_*_AV_INFO resize it later. */
     int w, h;
     SDL_GetWindowSizeInPixels(window, &w, &h);
-    if (!gl_fbo_create(ctx, (unsigned)w, (unsigned)h, hw->depth, hw->stencil)) {
+    unsigned fbo_w = g_av_info.geometry.max_width
+                     ? g_av_info.geometry.max_width
+                     : (unsigned)w;
+    unsigned fbo_h = g_av_info.geometry.max_height
+                     ? g_av_info.geometry.max_height
+                     : (unsigned)h;
+    if (!gl_fbo_create(ctx, fbo_w, fbo_h, hw->depth, hw->stencil)) {
         SDL_GL_DestroyContext(ctx->gl_context);
         free(ctx);
         return false;
@@ -479,11 +487,16 @@ static void vb_gl_present(void *ctx, const void *data, unsigned width,
     video_gl_present((struct video_gl_context *)ctx, width, height);
 }
 
-static bool vb_gl_resize(void *ctx, SDL_Window *window,
-                         unsigned width, unsigned height)
+static bool vb_gl_resize_render_target(void *ctx, unsigned width, unsigned height)
 {
-    (void)window;
     return video_gl_resize((struct video_gl_context *)ctx, width, height);
+}
+
+static bool vb_gl_resize_output_surface(void *ctx, SDL_Window *window)
+{
+    (void)ctx;
+    (void)window;
+    return true;
 }
 
 static uintptr_t vb_gl_get_current_framebuffer(void *ctx)
@@ -525,7 +538,8 @@ const struct video_backend gl_backend = {
     .init                    = vb_gl_init,
     .destroy                 = vb_gl_destroy,
     .present                 = vb_gl_present,
-    .resize                  = vb_gl_resize,
+    .resize_render_target    = vb_gl_resize_render_target,
+    .resize_output_surface   = vb_gl_resize_output_surface,
     .get_current_framebuffer = vb_gl_get_current_framebuffer,
     .get_proc_address        = vb_gl_get_proc_address,
     .negotiate_device        = vb_gl_negotiate_device,

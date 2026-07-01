@@ -112,8 +112,21 @@ void video_sw_present(struct video_sw_context *ctx, const void *data,
         return;
     }
 
-    if (!ensure_texture(ctx, width, height, sdl_fmt))
-        return;
+    if (!data) {
+        if (!ctx->texture || ctx->last_frame_width == 0 ||
+            ctx->last_frame_height == 0) {
+            return;
+        }
+        width = ctx->last_frame_width;
+        height = ctx->last_frame_height;
+    } else {
+        if (width == 0 || height == 0)
+            return;
+        if (!ensure_texture(ctx, width, height, sdl_fmt))
+            return;
+        ctx->last_frame_width = width;
+        ctx->last_frame_height = height;
+    }
 
     /* Zero-copy fast path: the core handed back the pointer we previously
      * gave it via video_sw_get_framebuffer. Just unlock the texture and
@@ -267,13 +280,18 @@ static void vb_sw_present(void *ctx, const void *data, unsigned width,
                      pitch, fmt);
 }
 
-static bool vb_sw_resize(void *ctx, SDL_Window *window,
-                         unsigned width, unsigned height)
+static bool vb_sw_resize_render_target(void *ctx, unsigned width, unsigned height)
+{
+    (void)ctx;
+    (void)width;
+    (void)height;
+    return true;
+}
+
+static bool vb_sw_resize_output_surface(void *ctx, SDL_Window *window)
 {
     (void)ctx;
     (void)window;
-    (void)width;
-    (void)height;
     return true;
 }
 
@@ -319,7 +337,8 @@ const struct video_backend sw_backend = {
     .init                    = vb_sw_init,
     .destroy                 = vb_sw_destroy,
     .present                 = vb_sw_present,
-    .resize                  = vb_sw_resize,
+    .resize_render_target    = vb_sw_resize_render_target,
+    .resize_output_surface   = vb_sw_resize_output_surface,
     .get_current_framebuffer = vb_sw_get_current_framebuffer,
     .get_proc_address        = vb_sw_get_proc_address,
     .negotiate_device        = vb_sw_negotiate_device,

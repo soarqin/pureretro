@@ -251,13 +251,28 @@ bool input_load_keymap(const char *path)
         if (*p == '\0' || *p == '#')
             continue;
 
-        char *eq = strchr(p, '=');
-        if (!eq)
-            continue;
-        *eq = '\0';
-
         char *sc_name = p;
-        char *btn_name = eq + 1;
+        char *btn_name = NULL;
+        char *eq = strchr(p, '=');
+        if (eq) {
+            *eq = '\0';
+            btn_name = eq + 1;
+        } else {
+            size_t line_len = strlen(p);
+            while (line_len > 0 &&
+                   (p[line_len - 1] == ' ' || p[line_len - 1] == '\t')) {
+                p[--line_len] = '\0';
+            }
+            char *sep = p + line_len;
+            while (sep > p && sep[-1] != ' ' && sep[-1] != '\t')
+                --sep;
+            if (sep == p)
+                continue;
+            btn_name = sep;
+            while (sep > p && (sep[-1] == ' ' || sep[-1] == '\t'))
+                --sep;
+            *sep = '\0';
+        }
 
         /* trim whitespace */
         size_t sl = strlen(sc_name);
@@ -265,6 +280,9 @@ bool input_load_keymap(const char *path)
             sc_name[--sl] = '\0';
         while (*btn_name == ' ' || *btn_name == '\t')
             ++btn_name;
+        size_t bl = strlen(btn_name);
+        while (bl > 0 && (btn_name[bl - 1] == ' ' || btn_name[bl - 1] == '\t'))
+            btn_name[--bl] = '\0';
 
         SDL_Scancode sc = SDL_GetScancodeFromName(sc_name);
         if (sc == SDL_SCANCODE_UNKNOWN) {
@@ -316,14 +334,12 @@ void input_process_event(const SDL_Event *event)
 
     pressed = (event->type == SDL_EVENT_KEY_DOWN);
 
-    /* 1. Joypad mapping takes priority. */
+    /* 1. Update joypad mapping when present. */
     uint8_t retro_id = g_scancode_to_retro[scancode];
-    if (retro_id != KEYMAP_UNMAPPED) {
+    if (retro_id != KEYMAP_UNMAPPED)
         g_frontend.joypad_state[retro_id] = pressed ? 1 : 0;
-        return;
-    }
 
-    /* 2. Not mapped to joypad: send to keyboard callback if registered. */
+    /* 2. Also send recognized keys to keyboard callback if registered. */
     if (g_frontend.keyboard_callback.callback) {
         enum retro_key rk = g_sdl_to_retro_key[scancode];
         if (rk != RETROK_UNKNOWN) {
