@@ -1250,10 +1250,15 @@ static bool env_get_target_sample_rate(struct frontend_state *fe, void *data)
 {
     (void)fe;
     if (!data) { LOG_WARN("env_get_target_sample_rate: NULL data"); return false; }
-    float rate = (g_av_info.timing.sample_rate > 0.0)
-                 ? (float)g_av_info.timing.sample_rate
-                 : (float)FRONTEND_AUDIO_SAMPLE_RATE;
-    *(float *)data = rate;
+
+    /* libretro expects an unsigned Hz value here. Do not mirror
+     * GET_TARGET_REFRESH_RATE's float type: cores such as mGBA consume this
+     * during AV-info setup, and writing 48000.0f would be read back as the
+     * integer bit pattern 0x473b8000 (1195081728 Hz). */
+    unsigned rate = (g_av_info.timing.sample_rate > 0.0)
+                    ? (unsigned)(g_av_info.timing.sample_rate + 0.5)
+                    : FRONTEND_AUDIO_SAMPLE_RATE;
+    *(unsigned *)data = rate;
     return true;
 }
 

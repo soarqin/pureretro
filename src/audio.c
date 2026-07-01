@@ -49,6 +49,18 @@ bool audio_init(double sample_rate)
         return false;
     }
 
+    /* Clamp to a sane range before handing the value to SDL. Some cores
+     * report absurd rates (uninitialized memory, or a value they meant to
+     * express in a different unit); the drivers below us will reject those
+     * outright. 4 kHz..384 kHz covers every real device and every rate a
+     * libretro core has ever plausibly asked for. Outside this window we
+     * fall back to 48 kHz and let SDL's built-in resampler adapt. */
+    if (sample_rate < 4000.0 || sample_rate > 384000.0) {
+        LOG_WARN("audio_init: implausible sample rate %.0f Hz; using 48000 Hz",
+                 sample_rate);
+        sample_rate = 48000.0;
+    }
+
     memset(&spec, 0, sizeof(spec));
     spec.freq = (int)sample_rate;
     spec.format = SDL_AUDIO_S16;
