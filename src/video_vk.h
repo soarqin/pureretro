@@ -69,6 +69,14 @@ struct video_vk_context
     /* libretro interface state */
     struct retro_hw_render_interface_vulkan hw_if;
     struct retro_vulkan_image pending_image;
+    VkSemaphore *pending_wait_semaphores;
+    VkCommandBuffer *pending_command_buffers;
+    uint32_t pending_wait_semaphore_count;
+    uint32_t pending_wait_semaphore_capacity;
+    uint32_t pending_command_buffer_count;
+    uint32_t pending_command_buffer_capacity;
+    uint32_t pending_src_queue_family;
+    VkSemaphore pending_signal_semaphore;
     bool has_pending_image;
 
     /* Set when vkAcquireNextImageKHR / vkQueuePresentKHR returns

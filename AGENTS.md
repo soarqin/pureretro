@@ -41,6 +41,14 @@ The project uses a split-renderer architecture (as opposed to a monolithic `vide
 - `video_gl.c` / `video_gl.h` — OpenGL hardware renderer using SDL3 GL context.
 - `video_vk.c` / `video_vk.h` — Vulkan hardware renderer using SDL3 Vulkan surface.
 
+The backend vtable intentionally separates core render-target lifecycle from host
+output-surface lifecycle:
+
+- `resize_render_target` — libretro geometry/AV-info changes (OpenGL FBO size;
+  no-op for software/Vulkan).
+- `resize_output_surface` — SDL window surface changes (Vulkan swapchain
+  recreation; no-op for software/OpenGL).
+
 This separation keeps each renderer self-contained and easier to reason about in isolation.
 
 ### Module Map
@@ -48,7 +56,8 @@ This separation keeps each renderer self-contained and easier to reason about in
 ```
 main            ->  core, video, audio, input, frontend, vfs, log
 video           ->  video_backend (vtable) -> video_sw, video_gl, video_vk
-core            ->  libretro.h, frontend, core_variables, log
+core            ->  libretro.h, frontend, core_content, core_variables, log
+core_content    ->  frontend
 core_variables  ->  libretro.h, frontend, core_variables_parse
 audio           ->  SDL3, log
 input           ->  SDL3, log
@@ -146,7 +155,13 @@ bool frontend_is_running(void)
 - Vulkan initialization goes through SDL3 surface creation plus raw Vulkan calls.
 - The core requests the Vulkan render interface via `RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE`.
 - We must populate a `retro_hw_render_interface` with valid Vulkan handles (device, queue, command pool, swapchain images).
-- If full swapchain management would bloat the codebase beyond educational scope, provide the API-level handles and document any presentation limitations clearly.
+- Presentation waits on core-provided semaphores from `set_image`, submits
+  core-provided command buffers before the frontend blit, handles
+  `set_signal_semaphore`, and performs queue-family ownership transfer when
+  `src_queue_family` differs from the frontend queue family.
+- Swapchain recreation belongs to `resize_output_surface` and
+  out-of-date/suboptimal present handling, not libretro render-target geometry
+  changes.
 
 ## Environment Callbacks
 
@@ -308,11 +323,14 @@ Current coverage:
 - `tests/unit/test_smoke.c` — Unity wiring smoke test.
 - `tests/unit/test_vfs.c` — `vfs.c` open/seek/read/write/tell/close
   contract tests against real `tmpfile()`-style files.
+- `tests/unit/test_core_content.c` — content extension matching and
+  `SET_CONTENT_INFO_OVERRIDE` load-policy helpers.
+- `tests/unit/test_input.c` — keymap parser syntax and keyboard callback
+  forwarding for keys that also map to RetroPad.
 
 Pure-function modules that remain on the queue: `core_variables_parse`,
-`core_variables`, `log_level_from_string`, `input` keymap parser, CLI
-`parse_cli`. Subsystems requiring live SDL/GL/Vulkan context are
-intentionally not unit-tested.
+`core_variables`, `log_level_from_string`, CLI `parse_cli`. Subsystems
+requiring live SDL/GL/Vulkan context are intentionally not unit-tested.
 
 When adding a new test:
 

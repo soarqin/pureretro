@@ -475,29 +475,93 @@ fail:
     return false;
 }
 
+static void vk_clear_pending_frame(struct video_vk_context *ctx);
+
+static bool vk_reserve_wait_semaphores(struct video_vk_context *ctx,
+                                       uint32_t count)
+{
+    if (count <= ctx->pending_wait_semaphore_capacity)
+        return true;
+
+    VkSemaphore *items = realloc(ctx->pending_wait_semaphores,
+                                 sizeof(*items) * count);
+    if (!items)
+        return false;
+
+    ctx->pending_wait_semaphores = items;
+    ctx->pending_wait_semaphore_capacity = count;
+    return true;
+}
+
+static bool vk_reserve_command_buffers(struct video_vk_context *ctx,
+                                       uint32_t count)
+{
+    if (count <= ctx->pending_command_buffer_capacity)
+        return true;
+
+    VkCommandBuffer *items = realloc(ctx->pending_command_buffers,
+                                     sizeof(*items) * count);
+    if (!items)
+        return false;
+
+    ctx->pending_command_buffers = items;
+    ctx->pending_command_buffer_capacity = count;
+    return true;
+}
+
 static void vk_set_image(void *handle, const struct retro_vulkan_image *image,
                          uint32_t num_semaphores, const VkSemaphore *semaphores,
                          uint32_t src_queue_family)
 {
     struct video_vk_context *ctx = (struct video_vk_context *)handle;
-    (void)num_semaphores;
-    (void)semaphores;
-    (void)src_queue_family;
-    if (image) {
-        ctx->pending_image = *image;
-        ctx->has_pending_image = true;
+    if (!ctx || !image)
+        return;
+
+    ctx->pending_image = *image;
+    ctx->pending_src_queue_family = src_queue_family;
+    ctx->pending_wait_semaphore_count = 0;
+
+    if (semaphores && num_semaphores > 0) {
+        if (!vk_reserve_wait_semaphores(ctx, num_semaphores)) {
+            LOG_ERROR("Failed to store Vulkan core wait semaphores");
+            vk_clear_pending_frame(ctx);
+            return;
+        }
+        for (uint32_t i = 0; i < num_semaphores; ++i) {
+            if (semaphores[i] != VK_NULL_HANDLE) {
+                ctx->pending_wait_semaphores[
+                    ctx->pending_wait_semaphore_count++] = semaphores[i];
+            }
+        }
     }
+
+    ctx->has_pending_image = true;
+}
+
+static void vk_clear_pending_frame(struct video_vk_context *ctx)
+{
+    if (!ctx)
+        return;
+    ctx->has_pending_image = false;
+    ctx->pending_wait_semaphore_count = 0;
+    ctx->pending_command_buffer_count = 0;
+    ctx->pending_src_queue_family = VK_QUEUE_FAMILY_IGNORED;
+    ctx->pending_signal_semaphore = VK_NULL_HANDLE;
 }
 
 static uint32_t vk_get_sync_index(void *handle)
 {
     struct video_vk_context *ctx = (struct video_vk_context *)handle;
+    if (!ctx || ctx->image_count == 0)
+        return 0;
     return ctx->frame_index % ctx->image_count;
 }
 
 static uint32_t vk_get_sync_index_mask(void *handle)
 {
     struct video_vk_context *ctx = (struct video_vk_context *)handle;
+    if (!ctx)
+        return 0;
     uint32_t n = ctx->image_count;
     /* Guard against UB: shifting a uint32_t by 32 is undefined. The libretro
      * interface uses a 32-bit mask, so cap at 32 swapchain images. */
@@ -521,26 +585,46 @@ static void vk_unlock_queue(void *handle)
 static void vk_set_command_buffers(void *handle, uint32_t num_cmd,
                                    const VkCommandBuffer *cmd)
 {
-    (void)handle;
-    (void)num_cmd;
-    (void)cmd;
-    /* Stub: not supported in minimal implementation */
+    struct video_vk_context *ctx = (struct video_vk_context *)handle;
+    if (!ctx)
+        return;
+
+    ctx->pending_command_buffer_count = 0;
+    if (!cmd || num_cmd == 0)
+        return;
+
+    if (!vk_reserve_command_buffers(ctx, num_cmd)) {
+        LOG_ERROR("Failed to store Vulkan core command buffers");
+        vk_clear_pending_frame(ctx);
+        return;
+    }
+
+    for (uint32_t i = 0; i < num_cmd; ++i) {
+        if (cmd[i] != VK_NULL_HANDLE) {
+            ctx->pending_command_buffers[
+                ctx->pending_command_buffer_count++] = cmd[i];
+        }
+    }
 }
 
 static void vk_wait_sync_index(void *handle)
 {
-    (void)handle;
-    /* Stub */
+    struct video_vk_context *ctx = (struct video_vk_context *)handle;
+    if (!ctx || ctx->device == VK_NULL_HANDLE || ctx->image_count == 0)
+        return;
+
+    uint32_t frame_idx = ctx->frame_index % VK_MAX_FRAMES_IN_FLIGHT;
+    vkWaitForFences(ctx->device, 1, &ctx->frame_fence[frame_idx],
+                    VK_TRUE, UINT64_MAX);
 }
 
 static void vk_set_signal_semaphore(void *handle, VkSemaphore semaphore)
 {
-    (void)handle;
-    (void)semaphore;
-    /* Stub */
+    struct video_vk_context *ctx = (struct video_vk_context *)handle;
+    if (!ctx)
+        return;
+    ctx->pending_signal_semaphore = semaphore;
 }
-
-/* --- Stubs for functions implemented in later tasks --- */
 
 bool video_vk_init(SDL_Window *window, struct retro_hw_render_callback *hw,
                    struct video_vk_context **out_ctx)
@@ -550,6 +634,7 @@ bool video_vk_init(SDL_Window *window, struct retro_hw_render_callback *hw,
         return false;
 
     ctx->window = window;
+    ctx->pending_src_queue_family = VK_QUEUE_FAMILY_IGNORED;
 
     if (!create_instance(ctx, hw->debug_context))
         goto fail;
@@ -581,7 +666,6 @@ bool video_vk_init(SDL_Window *window, struct retro_hw_render_callback *hw,
     ctx->hw_if.get_device_proc_addr = ctx->get_device_proc_addr;
     ctx->hw_if.get_instance_proc_addr = ctx->get_instance_proc_addr;
 
-    /* Function pointers will be set in Task 6 */
     ctx->hw_if.set_image = vk_set_image;
     ctx->hw_if.get_sync_index = vk_get_sync_index;
     ctx->hw_if.get_sync_index_mask = vk_get_sync_index_mask;
@@ -646,6 +730,8 @@ void video_vk_destroy(struct video_vk_context *ctx)
     free(ctx->swapchain_views);
     free(ctx->cmd_buffers);
     free(ctx->images_in_flight);
+    free(ctx->pending_wait_semaphores);
+    free(ctx->pending_command_buffers);
     free(ctx);
 }
 
@@ -661,7 +747,7 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
         if (!video_vk_resize(ctx, ctx->window)) {
             /* Recreation failed (e.g. minimised window with zero extent).
              * Drop the pending image; we'll try again next frame. */
-            ctx->has_pending_image = false;
+            vk_clear_pending_frame(ctx);
             return;
         }
         ctx->swapchain_dirty = false;
@@ -682,11 +768,13 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
         /* Defer recreation to next present so the image_available
          * semaphore from this aborted acquire is not lost. */
         ctx->swapchain_dirty = true;
-        ctx->has_pending_image = false;
+        vk_clear_pending_frame(ctx);
         return;
     }
-    if (!vk_check(r, "vkAcquireNextImageKHR"))
+    if (!vk_check(r, "vkAcquireNextImageKHR")) {
+        vk_clear_pending_frame(ctx);
         return;
+    }
 
     /* Per-image guard: image_count may exceed VK_MAX_FRAMES_IN_FLIGHT
      * (FIFO triple-buffering on most drivers). frame_fence[frame_idx]
@@ -700,17 +788,16 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
     }
     ctx->images_in_flight[image_index] = ctx->frame_fence[frame_idx];
 
-    /* Reset fence only after successful acquire to avoid deadlock on failure */
-    vkResetFences(ctx->device, 1, &ctx->frame_fence[frame_idx]);
-
     VkCommandBuffer cmd = ctx->cmd_buffers[image_index];
     vkResetCommandBuffer(cmd, 0);
 
     VkCommandBufferBeginInfo cbbi = {0};
     cbbi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     cbbi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    if (!vk_check(vkBeginCommandBuffer(cmd, &cbbi), "vkBeginCommandBuffer"))
+    if (!vk_check(vkBeginCommandBuffer(cmd, &cbbi), "vkBeginCommandBuffer")) {
+        vk_clear_pending_frame(ctx);
         return;
+    }
 
     /* The core image is available via the VkImageViewCreateInfo stored in retro_vulkan_image.
      *
@@ -746,11 +833,24 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
                          0, NULL,
                          1, &barrier);
 
-    /* Transition core image to TRANSFER_SRC_OPTIMAL */
+    /* Transition core image to TRANSFER_SRC_OPTIMAL and acquire ownership
+     * when the core rendered on a different queue family. */
+    uint32_t core_queue_family = ctx->pending_src_queue_family;
+    bool transfer_core_ownership =
+        core_queue_family != VK_QUEUE_FAMILY_IGNORED &&
+        core_queue_family != ctx->queue_family_index;
     barrier.oldLayout = core_layout;
     barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    barrier.srcQueueFamilyIndex = transfer_core_ownership
+                                  ? core_queue_family
+                                  : VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = transfer_core_ownership
+                                  ? ctx->queue_family_index
+                                  : VK_QUEUE_FAMILY_IGNORED;
     barrier.image = core_image;
-    barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    barrier.srcAccessMask = transfer_core_ownership
+                            ? 0
+                            : VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
     barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
 
     vkCmdPipelineBarrier(cmd,
@@ -840,6 +940,8 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
     /* Transition swapchain image to PRESENT_SRC_KHR */
     barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
     barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.image = ctx->swapchain_images[image_index];
     barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     barrier.dstAccessMask = 0;
@@ -852,12 +954,21 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
                          0, NULL,
                          1, &barrier);
 
-    /* Transition core image back to its original layout */
+    /* Transition core image back to its original layout and release queue
+     * family ownership when we acquired it above. */
     barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     barrier.newLayout = core_layout;
+    barrier.srcQueueFamilyIndex = transfer_core_ownership
+                                  ? ctx->queue_family_index
+                                  : VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = transfer_core_ownership
+                                  ? core_queue_family
+                                  : VK_QUEUE_FAMILY_IGNORED;
     barrier.image = core_image;
     barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-    barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    barrier.dstAccessMask = transfer_core_ownership
+                            ? 0
+                            : VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
     vkCmdPipelineBarrier(cmd,
                          VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -867,23 +978,82 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
                          0, NULL,
                          1, &barrier);
 
-    if (!vk_check(vkEndCommandBuffer(cmd), "vkEndCommandBuffer"))
+    if (!vk_check(vkEndCommandBuffer(cmd), "vkEndCommandBuffer")) {
+        vk_clear_pending_frame(ctx);
         return;
+    }
 
-    VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    uint32_t wait_capacity = 1 + ctx->pending_wait_semaphore_count;
+    VkSemaphore *wait_semaphores = calloc(wait_capacity,
+                                          sizeof(*wait_semaphores));
+    VkPipelineStageFlags *wait_stages = calloc(wait_capacity,
+                                               sizeof(*wait_stages));
+    uint32_t submit_cmd_capacity = 1 + ctx->pending_command_buffer_count;
+    VkCommandBuffer *submit_cmds = calloc(submit_cmd_capacity,
+                                          sizeof(*submit_cmds));
+    if (!wait_semaphores || !wait_stages || !submit_cmds) {
+        free(wait_semaphores);
+        free(wait_stages);
+        free(submit_cmds);
+        LOG_ERROR("Failed to allocate Vulkan submit arrays");
+        vk_clear_pending_frame(ctx);
+        return;
+    }
+
+    uint32_t wait_count = 0;
+    wait_semaphores[wait_count] = ctx->image_available[frame_idx];
+    wait_stages[wait_count++] = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    for (uint32_t i = 0; i < ctx->pending_wait_semaphore_count; ++i) {
+        wait_semaphores[wait_count] = ctx->pending_wait_semaphores[i];
+        wait_stages[wait_count++] = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+    }
+
+    uint32_t submit_cmd_count = 0;
+    for (uint32_t i = 0; i < ctx->pending_command_buffer_count; ++i)
+        submit_cmds[submit_cmd_count++] = ctx->pending_command_buffers[i];
+    submit_cmds[submit_cmd_count++] = cmd;
+
+    VkSemaphore signal_semaphores[2];
+    uint32_t signal_count = 0;
+    signal_semaphores[signal_count++] = ctx->render_finished[frame_idx];
+    if (ctx->pending_signal_semaphore != VK_NULL_HANDLE)
+        signal_semaphores[signal_count++] = ctx->pending_signal_semaphore;
+
     VkSubmitInfo submit_info = {0};
     submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit_info.waitSemaphoreCount = 1;
-    submit_info.pWaitSemaphores = &ctx->image_available[frame_idx];
-    submit_info.pWaitDstStageMask = &wait_stage;
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &cmd;
-    submit_info.signalSemaphoreCount = 1;
-    submit_info.pSignalSemaphores = &ctx->render_finished[frame_idx];
+    submit_info.waitSemaphoreCount = wait_count;
+    submit_info.pWaitSemaphores = wait_semaphores;
+    submit_info.pWaitDstStageMask = wait_stages;
+    submit_info.commandBufferCount = submit_cmd_count;
+    submit_info.pCommandBuffers = submit_cmds;
+    submit_info.signalSemaphoreCount = signal_count;
+    submit_info.pSignalSemaphores = signal_semaphores;
 
+    vkResetFences(ctx->device, 1, &ctx->frame_fence[frame_idx]);
     if (!vk_check(vkQueueSubmit(ctx->graphics_queue, 1, &submit_info,
-                                ctx->frame_fence[frame_idx]), "vkQueueSubmit"))
+                                ctx->frame_fence[frame_idx]), "vkQueueSubmit")) {
+        VkFence old_fence = ctx->frame_fence[frame_idx];
+        for (uint32_t i = 0; i < ctx->image_count; ++i) {
+            if (ctx->images_in_flight[i] == old_fence)
+                ctx->images_in_flight[i] = VK_NULL_HANDLE;
+        }
+        VkFenceCreateInfo fci = {0};
+        fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+        vkDestroyFence(ctx->device, old_fence, NULL);
+        ctx->frame_fence[frame_idx] = VK_NULL_HANDLE;
+        vkCreateFence(ctx->device, &fci, NULL, &ctx->frame_fence[frame_idx]);
+        free(wait_semaphores);
+        free(wait_stages);
+        free(submit_cmds);
+        g_frontend.running = false;
+        vk_clear_pending_frame(ctx);
         return;
+    }
+
+    free(wait_semaphores);
+    free(wait_stages);
+    free(submit_cmds);
 
     VkPresentInfoKHR present_info = {0};
     present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -902,7 +1072,7 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
     }
 
     ctx->frame_index++;
-    ctx->has_pending_image = false;
+    vk_clear_pending_frame(ctx);
 }
 
 retro_proc_address_t video_vk_get_proc_address(struct video_vk_context *ctx,

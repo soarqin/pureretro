@@ -4,12 +4,18 @@
 
 This plan is a read-only review outcome for the current repository. It focuses on defects and unreasonable implementation choices that affect correctness, portability, maintainability, or documentation accuracy. It intentionally avoids feature expansion beyond PureRetro's minimal educational frontend goal.
 
+## Current implementation status
+
+Phases 1-5 have been executed after this review was written. The remaining validation gap is manual runtime testing with real OpenGL/Vulkan libretro cores and Vulkan validation layers; automated unit tests intentionally do not create live renderer contexts.
+
 ## Current validation baseline
 
-- `ctest --test-dir build/ --output-on-failure` passes: 4/4 tests.
-- Existing unit coverage is narrow: smoke and VFS only. Most CLI, input, core option, and renderer edge cases are untested.
+- `ctest --test-dir build/ --output-on-failure` passes: 8/8 tests.
+- Unit coverage includes smoke, VFS, content load-policy helpers, and input keymap/callback behavior. Core variables, log level parsing, CLI parsing, and live renderer context paths remain future test candidates.
 
-## Findings
+## Historical findings
+
+The following findings are preserved as the original repair brief. Items in phases 1-5 have been addressed by the subsequent implementation; use this section as historical context rather than as a current defect list.
 
 ### P0 — Correctness defects to fix first
 

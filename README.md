@@ -100,6 +100,8 @@ Current coverage:
 
 - `test_smoke` — Unity wiring smoke test.
 - `test_vfs` — `vfs.c` open/seek/read/write/tell/close contract tests against real temporary files.
+- `test_core_content` — content extension matching and load-policy helpers.
+- `test_input` — keymap parser syntax and keyboard callback forwarding.
 
 Subsystems requiring a live SDL/GL/Vulkan context are intentionally not unit-tested.
 
