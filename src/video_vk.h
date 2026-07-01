@@ -110,8 +110,10 @@ bool video_vk_init(SDL_Window *window, struct retro_hw_render_callback *hw,
 /* Destroy the Vulkan renderer and all Vulkan resources. */
 void video_vk_destroy(struct video_vk_context *ctx);
 
-/* Present a hardware-rendered frame. */
-void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned height);
+/* Present a hardware-rendered frame. frame_valid is true when the core passed
+ * RETRO_HW_FRAME_BUFFER_VALID, false for duplicate-frame NULL refreshes. */
+void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned height,
+                      bool frame_valid);
 
 /* Resolve a Vulkan symbol. */
 retro_proc_address_t video_vk_get_proc_address(struct video_vk_context *ctx,

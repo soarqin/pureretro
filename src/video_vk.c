@@ -557,22 +557,22 @@ static void vk_clear_pending_frame(struct video_vk_context *ctx)
 static uint32_t vk_get_sync_index(void *handle)
 {
     struct video_vk_context *ctx = (struct video_vk_context *)handle;
-    if (!ctx || ctx->image_count == 0)
+    if (!ctx)
         return 0;
-    return ctx->frame_index % ctx->image_count;
+
+    /* The sync index describes frontend frame slots that the core may use
+     * for its own per-frame resources. Keep this aligned with
+     * wait_sync_index(), which waits frame_fence[frame_index %
+     * VK_MAX_FRAMES_IN_FLIGHT]. Exposing swapchain image_count while only
+     * waiting two frame fences lets cores reuse resources still read by the
+     * frontend on common triple-buffered swapchains. */
+    return ctx->frame_index % VK_MAX_FRAMES_IN_FLIGHT;
 }
 
 static uint32_t vk_get_sync_index_mask(void *handle)
 {
-    struct video_vk_context *ctx = (struct video_vk_context *)handle;
-    if (!ctx)
-        return 0;
-    uint32_t n = ctx->image_count;
-    /* Guard against UB: shifting a uint32_t by 32 is undefined. The libretro
-     * interface uses a 32-bit mask, so cap at 32 swapchain images. */
-    if (n >= 32)
-        return UINT32_MAX;
-    return (1u << n) - 1u;
+    (void)handle;
+    return (1u << VK_MAX_FRAMES_IN_FLIGHT) - 1u;
 }
 
 static void vk_lock_queue(void *handle)
@@ -740,7 +740,8 @@ void video_vk_destroy(struct video_vk_context *ctx)
     free(ctx);
 }
 
-void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned height)
+void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned height,
+                      bool frame_valid)
 {
     if (!ctx || ctx->pending_image.create_info.image == VK_NULL_HANDLE)
         return;
@@ -1041,7 +1042,17 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
         return;
     }
 
-    uint32_t wait_capacity = 1 + ctx->pending_wait_semaphore_count;
+    /* libretro Vulkan contract: if frame duping is used, or if the core
+     * supplies command buffers, the frontend must not wait on the semaphores
+     * passed to set_image(). In the command-buffer case those semaphores may
+     * be signalled by the submitted command buffers themselves; waiting on
+     * them in the same queue submit can deadlock or leave presentation stuck
+     * on stale/black frames. Always wait for the WSI acquire semaphore. */
+    bool wait_for_core_semaphores = frame_valid &&
+                                    ctx->pending_command_buffer_count == 0 &&
+                                    ctx->pending_wait_semaphore_count > 0;
+    uint32_t wait_capacity = 1 + (wait_for_core_semaphores
+                                  ? ctx->pending_wait_semaphore_count : 0);
     VkSemaphore *wait_semaphores = calloc(wait_capacity,
                                           sizeof(*wait_semaphores));
     VkPipelineStageFlags *wait_stages = calloc(wait_capacity,
@@ -1061,9 +1072,11 @@ void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned hei
     uint32_t wait_count = 0;
     wait_semaphores[wait_count] = ctx->image_available[frame_idx];
     wait_stages[wait_count++] = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    for (uint32_t i = 0; i < ctx->pending_wait_semaphore_count; ++i) {
-        wait_semaphores[wait_count] = ctx->pending_wait_semaphores[i];
-        wait_stages[wait_count++] = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+    if (wait_for_core_semaphores) {
+        for (uint32_t i = 0; i < ctx->pending_wait_semaphore_count; ++i) {
+            wait_semaphores[wait_count] = ctx->pending_wait_semaphores[i];
+            wait_stages[wait_count++] = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        }
     }
 
     uint32_t submit_cmd_count = 0;
@@ -1251,10 +1264,10 @@ static void vb_vk_present(void *ctx, const void *data, unsigned width,
                           unsigned height, size_t pitch,
                           enum retro_pixel_format fmt)
 {
-    (void)data;
     (void)pitch;
     (void)fmt;
-    video_vk_present((struct video_vk_context *)ctx, width, height);
+    video_vk_present((struct video_vk_context *)ctx, width, height,
+                     data == RETRO_HW_FRAME_BUFFER_VALID);
 }
 
 static bool vb_vk_resize_render_target(void *ctx, unsigned width, unsigned height)
@@ -1336,11 +1349,13 @@ void video_vk_destroy(struct video_vk_context *ctx)
     (void)ctx;
 }
 
-void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned height)
+void video_vk_present(struct video_vk_context *ctx, unsigned width, unsigned height,
+                      bool frame_valid)
 {
     (void)ctx;
     (void)width;
     (void)height;
+    (void)frame_valid;
 }
 
 retro_proc_address_t video_vk_get_proc_address(struct video_vk_context *ctx,
