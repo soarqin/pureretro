@@ -102,6 +102,9 @@ Current coverage:
 - `test_vfs` — `vfs.c` open/seek/read/write/tell/close contract tests against real temporary files.
 - `test_core_content` — content extension matching and load-policy helpers.
 - `test_input` — keymap parser syntax and keyboard callback forwarding.
+- `test_log` — log-level string parsing and `log_init` env-var behavior.
+- `test_core_variables_parse` — pure string helpers for the `retro_variable` v0 value format.
+- `test_core_variables` — core-option / variable-table CRUD, CLI → disk → default lookup order, and per-core `.opt` path derivation.
 
 Subsystems requiring a live SDL/GL/Vulkan context are intentionally not unit-tested.
 

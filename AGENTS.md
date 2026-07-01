@@ -327,10 +327,20 @@ Current coverage:
   `SET_CONTENT_INFO_OVERRIDE` load-policy helpers.
 - `tests/unit/test_input.c` — keymap parser syntax and keyboard callback
   forwarding for keys that also map to RetroPad.
+- `tests/unit/test_log.c` — `log_parse_level` string parsing,
+  `log_set_level` / `log_get_level` round-trip, and `log_init` env-var
+  behavior.
+- `tests/unit/test_core_variables_parse.c` — pure string helpers for
+  the v0 `retro_variable` value format (default, description, choices).
+- `tests/unit/test_core_variables.c` — `variable_table` and
+  `core_options_table` CRUD contracts plus the
+  `cli_overrides -> disk_overrides -> current -> default` lookup order
+  mirrored from `env_get_variable`, and `core_variables_path` name/ext
+  stripping.
 
-Pure-function modules that remain on the queue: `core_variables_parse`,
-`core_variables`, `log_level_from_string`, CLI `parse_cli`. Subsystems
-requiring live SDL/GL/Vulkan context are intentionally not unit-tested.
+Pure-function modules that remain on the queue: CLI `parse_cli` (needs
+extraction from `main.c` first). Subsystems requiring live SDL/GL/Vulkan
+context are intentionally not unit-tested.
 
 When adding a new test:
 
