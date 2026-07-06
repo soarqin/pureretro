@@ -4,7 +4,7 @@ This document provides architectural context, coding conventions, and workflow g
 
 ## Project Identity
 
-PureRetro is a **minimal libretro frontend**. It is educational by design — every line should justify its existence. Avoid feature creep: no GUI framework, no configuration file parser, no shader stack, no rewind UI. Savestates are intentionally simple: `--savestate <file>` auto-loads on startup; no in-app save/load UI or hotkeys.
+PureRetro is a **small libretro frontend**.
 
 ## Project Status
 
@@ -298,7 +298,6 @@ CLI-usage output remains direct `fprintf(stderr, ...)`.
 - **Savestates**: `--savestate <file>` loads a savestate (via `retro_unserialize`)
   once after core init. `retro_serialize` / `retro_unserialize` / `retro_serialize_size`
   are loaded as optional symbols; cores that do not export them silently no-op.
-  No in-app hotkey or auto-save — keep persistence intentional and minimal.
 
 ## Cross-Platform Rules
 

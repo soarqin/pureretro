@@ -1,8 +1,8 @@
 # PureRetro
 
-A minimal [libretro](https://www.libretro.com/) frontend written in Pure C with SDL3.
+A small [libretro](https://www.libretro.com/) frontend written in Pure C with SDL3.
 
-Inspired by [sdlarch](https://github.com/heuripedes/sdlarch), PureRetro aims to be a small, clean, and educational reference implementation. It supports software rendering as well as hardware-rendered OpenGL and Vulkan contexts.
+Inspired by [sdlarch](https://github.com/heuripedes/sdlarch), PureRetro aims to be a small and clean implementation. It supports software rendering as well as hardware-rendered OpenGL and Vulkan contexts.
 
 ## Features
 
