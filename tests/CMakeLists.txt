@@ -6,10 +6,7 @@
 # `ctest` invocation builds and runs the tests.
 function(add_pureretro_test name)
     add_executable(${name} EXCLUDE_FROM_ALL ${ARGN})
-    target_include_directories(${name} PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/include
-    )
+    target_include_directories(${name} PRIVATE ${PURERETRO_INCLUDE_DIRS})
     target_link_libraries(${name} PRIVATE unity SDL3::SDL3)
     target_compile_definitions(${name} PRIVATE PURERETRO_TESTING)
 

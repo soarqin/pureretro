@@ -15,7 +15,7 @@ PureRetro is a **minimal libretro frontend**. It is educational by design — ev
 | Phase 3 | ✅ Complete | OpenGL hardware rendering: context creation, FBO management, presentation blit, context lifecycle |
 | Phase 4 | ✅ Complete | Vulkan hardware rendering: instance, device, swapchain, presentation blit, libretro interface |
 | Phase 5 | ✅ Complete | Cross-platform polish and testing |
-| Phase 6 | 🔄 In progress | 6.1 runtime validation matrix (`docs/RUNTIME_VALIDATION.md`); 6.2 unit tests ✅; 6.3 `main.c` split ✅ |
+| Phase 6 | 🔄 In progress | 6.1 runtime validation matrix (`docs/RUNTIME_VALIDATION.md`); 6.2 unit tests ✅; 6.3 source tree/module split ✅ |
 
 ### Verified Build Targets
 - **Linux (GCC 13.3, Clang 22, Ubuntu 24.04)**: ✅ Builds and links successfully
@@ -37,10 +37,10 @@ SDL3 and other dependencies are managed via CPM (`cmake/Dependencies.cmake`):
 
 The project uses a split-renderer architecture (as opposed to a monolithic `video.c`):
 
-- `video.c` / `video.h` — Renderer-agnostic code: window creation, renderer selection/dispatch, common state.
-- `video_sw.c` / `video_sw.h` — Software renderer using SDL3 textures.
-- `video_gl.c` / `video_gl.h` — OpenGL hardware renderer using SDL3 GL context.
-- `video_vk.c` / `video_vk.h` — Vulkan hardware renderer using SDL3 Vulkan surface.
+- `src/video/video.c` / `video.h` — Renderer-agnostic code: window creation, renderer selection/dispatch, common state.
+- `src/video/video_sw.c` / `video_sw.h` — Software renderer using SDL3 textures.
+- `src/video/video_gl.c` / `video_gl.h` — OpenGL hardware renderer using SDL3 GL context.
+- `src/video/video_vk*.c` / `video_vk.h` — Vulkan hardware renderer split into device, swapchain, frame-interface, presentation, and backend glue files.
 
 The backend vtable intentionally separates core render-target lifecycle from host
 output-surface lifecycle:
@@ -55,19 +55,21 @@ This separation keeps each renderer self-contained and easier to reason about in
 ### Module Map
 
 ```
-main              ->  cli, frontend_lifecycle, run_loop, core, video, audio,
+app/main          ->  cli, frontend_lifecycle, run_loop, core, video, audio,
                       input, vfs, log
 cli               ->  frontend, core_variables, log, video (renderer_name)
-frontend_lifecycle -> frontend, audio, video, log
-run_loop          ->  frontend, core, audio, input, video
-video             ->  video_backend (vtable) -> video_sw, video_gl, video_vk
-core              ->  libretro.h, frontend, core_content, core_variables, log
+app/frontend_lifecycle -> frontend, audio, video, log
+app/run_loop      ->  frontend, core, audio, input, video
+video             ->  video_backend (vtable) -> video_sw, video_gl, video_vk*
+core/core         ->  libretro.h, frontend, core_content, core_storage, log
+core/environment  ->  frontend, audio, video, vfs, core_variables, log
+core/persistence  ->  core function table, log
 core_content      ->  frontend
 core_variables    ->  libretro.h, frontend, core_variables_parse
 audio             ->  SDL3, log
 input             ->  SDL3, log
-vfs               ->  libretro.h, log
-log               ->  SDL3
+io/vfs            ->  libretro.h, log
+logging/log       ->  SDL3
 frontend          ->  (shared typedefs and globals)
 ```
 
@@ -76,22 +78,25 @@ frontend          ->  (shared typedefs and globals)
 Two large, formerly-monolithic functions are now table-driven; this is the
 preferred extension pattern for new additions:
 
-- `core.c::g_env_table[]` — 73 entries dispatching `retro_environment_t`
-  callbacks to one `static bool env_*(struct frontend_state *fe, void *data)`
+- `core_environment.c::g_env_table[]` — 73 entries dispatching `retro_environment_t`
+  callbacks to one `bool env_*(struct frontend_state *fe, void *data)`
   handler each. Lookup is two-pass: raw `cmd` first (exact match), then
   `cmd & ~RETRO_ENVIRONMENT_EXPERIMENTAL`. This lets a single numeric value
   shared by an EXPERIMENTAL alias and a stable command be routed to two
   different handlers (e.g. `SET_HW_SHARED_CONTEXT` 44 vs. an EXP-44 sibling).
   `core_environment` itself is ~10 lines: table lookup + invoke + default
   `LOG_DEBUG("unhandled %u")` branch.
-- `cli.c::g_cli_options[]` — 19 entries dispatching CLI flags to one
+- `src/cli/cli.c::g_cli_options[]` — 19 entries dispatching CLI flags to one
   `static bool cli_*(const char *arg, struct frontend_state *cfg)` handler
   each, plus a `wants_arg` flag and `help` text. `cli_parse` is ~42 lines
-  and contains no per-flag logic. `main.c` calls `cli_parse` and knows
+  and contains no per-flag logic. `src/app/main.c` calls `cli_parse` and knows
   nothing about individual flags.
 
-To add a new env callback or CLI flag: write one `static` handler + one row
-in the corresponding table. Do not reintroduce switch/if-else chains.
+To add a new env callback: write one `env_*` handler in the appropriate
+`core_env_*.c` file, add its private prototype, and add one row in
+`core_environment.c::g_env_table[]`. To add a CLI flag: write one `static`
+handler plus one row in `g_cli_options[]`. Do not reintroduce switch/if-else
+chains.
 
 ### No libretro-common Policy
 
@@ -171,7 +176,7 @@ bool frontend_is_running(void)
 
 ## Environment Callbacks
 
-The `core.c` module implements the frontend's `retro_environment_t`. The table below lists callbacks that have explicit case branches; everything else falls through to the `default` arm (logged and returns false).
+The `src/core/core_environment.c` module owns the frontend's `retro_environment_t` dispatch table. Handler implementations are grouped by concern in `core_env_basic.c`, `core_env_runtime.c`, `core_env_options.c`, and `core_env_storage.c`. The table below lists callbacks that have explicit case branches; everything else falls through to the default branch (logged and returns false).
 
 | Callback | Status | Notes |
 |----------|--------|-------|
@@ -186,8 +191,8 @@ The `core.c` module implements the frontend's `retro_environment_t`. The table b
 | `GET_SYSTEM_DIRECTORY` | ✅ Implemented | Returns `g_frontend.system_directory` (resolved by `--system-dir`, `SDL_GetPrefPath`, or `--portable`). |
 | `GET_SAVE_DIRECTORY` | ✅ Implemented | Returns `g_frontend.save_directory`, falling back to system directory. |
 | `GET_CORE_ASSETS_DIRECTORY` | ✅ Implemented | Returns `g_frontend.core_assets_directory` (settable via `--core-assets-dir`). |
-| `GET_LOG_INTERFACE` | ✅ Implemented | Bridges core log messages to the loglevel-aware logger (`src/log.c`). |
-| `GET_VFS_INTERFACE` | ✅ Implemented | v1 stdio-backed VFS (see `vfs.c`). |
+| `GET_LOG_INTERFACE` | ✅ Implemented | Bridges core log messages to the loglevel-aware logger (`src/logging/log.c`). |
+| `GET_VFS_INTERFACE` | ✅ Implemented | v1 stdio-backed VFS (see `src/io/vfs.c`). |
 | `SHUTDOWN` | ✅ Implemented | Sets `g_frontend.running = false`. |
 | `SET_SUPPORT_NO_GAME` | ✅ Implemented | Returns true. |
 | `SET_MESSAGE` | ✅ Implemented | Prints to stderr. |
@@ -247,7 +252,7 @@ The `core.c` module implements the frontend's `retro_environment_t`. The table b
 
 ## Command-Line Flags
 
-`main.c` parses these after `<core> [<content>]`:
+`src/cli/cli.c` parses these after `<core> [<content>]`:
 
 | Flag | Argument | Purpose |
 |------|----------|---------|
@@ -274,7 +279,7 @@ The `core.c` module implements the frontend's `retro_environment_t`. The table b
 ## Logging
 
 All frontend code and forwarded core log messages route through the
-loglevel-aware logger in `src/log.c`. The format is
+loglevel-aware logger in `src/logging/log.c`. The format is
 `[HH:MM:SS.mmm] [LEVEL] [SRC] message`, where `SRC` is `FRONTEND` for
 in-frontend messages and `CORE` for those forwarded via
 `RETRO_ENVIRONMENT_GET_LOG_INTERFACE`. The active level is chosen as
@@ -354,7 +359,7 @@ SDL/GL/Vulkan context are intentionally not unit-tested.
 When adding a new test:
 
 1. Drop `test_xxx.c` into `tests/unit/` (and any frontend `.c` it links).
-2. Add one line: `add_pureretro_test(test_xxx test_xxx.c ${CMAKE_SOURCE_DIR}/src/<dep>.c)`.
+2. Add one line with the moved source path, e.g. `add_pureretro_test(test_xxx test_xxx.c ${CMAKE_SOURCE_DIR}/src/<system>/<dep>.c)`.
 3. `add_pureretro_test` already applies `EXCLUDE_FROM_ALL` and registers
    the test with the build-on-demand fixture; no extra wiring needed.
 

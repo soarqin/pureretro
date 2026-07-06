@@ -113,27 +113,25 @@ Subsystems requiring a live SDL/GL/Vulkan context are intentionally not unit-tes
 
 ```
 src/
-  main.c                     # entry point orchestrator (~170 lines)
-  cli.c / cli.h              # CLI parsing (table-driven dispatch)
-  frontend_lifecycle.c/.h    # SDL/log/video bring-up and shutdown
-  run_loop.c / run_loop.h    # event pump + frame timing
-  core.c / core.h            # libretro core loader + environment dispatch table
-  core_variables*.c/.h       # core option storage + definition parsing
-  video.c / video.h          # renderer-agnostic windowing + dispatch
-  video_sw.c                 # software renderer (SDL3 texture)
-  video_gl.c                 # OpenGL renderer (FBO + presentation blit)
-  video_vk.c                 # Vulkan renderer (instance, device, swapchain)
-  audio.c / audio.h          # SDL3 audio stream + buffer status callback
-  input.c / input.h          # keyboard -> RetroPad bitmask mapping
-  vfs.c / vfs.h              # retro_vfs_interface v1 implementation
-  log.c / log.h              # level-aware logger
-  frontend.h                 # shared typedefs and global state
+  app/                       # entry point, lifecycle, run loop, shared frontend state
+  audio/                     # SDL3 audio stream + buffer status callback
+  cli/                       # table-driven command-line parser
+  core/                      # libretro loading, callbacks, env dispatch, options, persistence
+  input/                     # keyboard -> RetroPad bitmask mapping
+  io/                        # retro_vfs_interface v1 implementation
+  logging/                   # level-aware logger
+  video/                     # renderer dispatch plus SW, OpenGL, and Vulkan backends
 include/
   libretro.h                 # upstream libretro API header (only file used)
 tests/unit/                  # Unity-based tests (EXCLUDE_FROM_ALL)
 cmake/
   Dependencies.cmake         # CPM + SDL3/Unity resolution
 ```
+
+The largest implementation files are split by responsibility: for example,
+`src/core/` separates core lifecycle, env callback groups, persistence, and
+owned storage cleanup, while `src/video/` separates Vulkan device, swapchain,
+frame-interface, and presentation code.
 
 ## Usage
 

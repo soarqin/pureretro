@@ -102,7 +102,7 @@ The following are intentionally not covered by this matrix:
 
 - Rumble / Sensors / Camera / Location / MIDI / Microphone / Perf
   (marked "Not planned" in AGENTS.md).
-- Keyboard-to-analog axis mapping (open TODO in `core.c`).
+- Keyboard-to-analog axis mapping (open TODO in `src/core/core_callbacks.c`).
 - Automated CI runs of live cores (needs sandboxed host + core corpus;
   out of scope for a minimal educational frontend).
 

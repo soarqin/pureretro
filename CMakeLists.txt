@@ -15,55 +15,82 @@ option(PURERETRO_ENABLE_VULKAN "Enable Vulkan hardware renderer" ON)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 include(Dependencies)
 
+set(PURERETRO_INCLUDE_DIRS
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/audio
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/cli
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/core
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/input
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/io
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/logging
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/video
+)
+
 # Source files
 set(PURERETRO_SOURCES
-    src/main.c
-    src/cli.c
-    src/frontend_lifecycle.c
-    src/run_loop.c
-    src/core.c
-    src/core_content.c
-    src/core_variables.c
-    src/core_variables_parse.c
-    src/video.c
-    src/video_sw.c
-    src/video_gl.c
-    src/audio.c
-    src/input.c
-    src/vfs.c
-    src/log.c
+    src/app/main.c
+    src/app/frontend_lifecycle.c
+    src/app/run_loop.c
+    src/audio/audio.c
+    src/cli/cli.c
+    src/core/core.c
+    src/core/core_callbacks.c
+    src/core/core_content.c
+    src/core/core_env_basic.c
+    src/core/core_env_options.c
+    src/core/core_env_runtime.c
+    src/core/core_env_storage.c
+    src/core/core_environment.c
+    src/core/core_persistence.c
+    src/core/core_storage.c
+    src/core/core_variables.c
+    src/core/core_variables_parse.c
+    src/input/input.c
+    src/io/vfs.c
+    src/logging/log.c
+    src/video/video.c
+    src/video/video_sw.c
+    src/video/video_gl.c
 )
 
 set(PURERETRO_HEADERS
-    src/frontend.h
-    src/cli.h
-    src/frontend_lifecycle.h
-    src/run_loop.h
-    src/core.h
-    src/core_content.h
-    src/core_variables.h
-    src/core_variables_parse.h
-    src/video.h
-    src/video_backend.h
-    src/video_sw.h
-    src/video_gl.h
-    src/audio.h
-    src/input.h
-    src/vfs.h
-    src/log.h
+    src/app/frontend.h
+    src/app/frontend_lifecycle.h
+    src/app/run_loop.h
+    src/audio/audio.h
+    src/cli/cli.h
+    src/core/core.h
+    src/core/core_content.h
+    src/core/core_internal.h
+    src/core/core_variables.h
+    src/core/core_variables_parse.h
+    src/input/input.h
+    src/io/vfs.h
+    src/logging/log.h
+    src/video/video.h
+    src/video/video_backend.h
+    src/video/video_sw.h
+    src/video/video_gl.h
 )
 
 if(PURERETRO_ENABLE_VULKAN)
-    list(APPEND PURERETRO_SOURCES src/video_vk.c)
-    list(APPEND PURERETRO_HEADERS src/video_vk.h)
+    list(APPEND PURERETRO_SOURCES
+        src/video/video_vk.c
+        src/video/video_vk_device.c
+        src/video/video_vk_frame.c
+        src/video/video_vk_present.c
+        src/video/video_vk_swapchain.c
+    )
+    list(APPEND PURERETRO_HEADERS
+        src/video/video_vk.h
+        src/video/video_vk_internal.h
+    )
 endif()
 
 add_executable(pureretro ${PURERETRO_SOURCES} ${PURERETRO_HEADERS})
 
-target_include_directories(pureretro PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
+target_include_directories(pureretro PRIVATE ${PURERETRO_INCLUDE_DIRS})
 
 target_link_libraries(pureretro PRIVATE SDL3::SDL3)
 
